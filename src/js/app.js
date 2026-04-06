@@ -251,6 +251,7 @@ async function fazerLogin() {
 }
 
 function logout() {
+  pararTimeoutSessao();
   usuarioLogado=null; openSince=null; carrinho=[];
   document.getElementById('tela-login').classList.remove('hidden');
   document.getElementById('topbar').style.display='none';
@@ -326,6 +327,7 @@ async function abrirNovaSessao() {
 function mostrarApp() {
   document.getElementById('topbar').style.display='flex';
   document.getElementById('app-layout').style.display='flex';
+  iniciarTimeoutSessao();
   updateClock();
   renderCaixa();
 }
@@ -729,12 +731,14 @@ async function salvarProduto(){
   }
 }
 
-async function deletarProduto(id){
-  if(!confirm('Excluir este produto?')) return;
-  await dbDelete('produtos',id);
-  produtos=produtos.filter(x=>x.id!==id);
-  renderEstoque(); renderCaixa();
-  showToast('Produto removido');
+function deletarProduto(id){
+  const p = produtos.find(x=>x.id===id);
+  mostrarConfirmar('Excluir produto', `Excluir "${p?.nome || 'este produto'}" do estoque?`, async () => {
+    await dbDelete('produtos', id);
+    produtos = produtos.filter(x=>x.id!==id);
+    renderEstoque(); renderCaixa();
+    showToast('Produto removido');
+  });
 }
 
 // =====================================================
@@ -1015,12 +1019,13 @@ async function salvarUsuario() {
     }
   } catch(e){ err.textContent='Erro: '+e.message; err.classList.add('show'); }
 }
-async function deletarUsuario(login) {
+function deletarUsuario(login) {
   if(login===adminLogado){ showToast('Não pode excluir o usuário logado.','red'); return; }
-  if(!confirm('Excluir o usuário "'+login+'"?')) return;
-  await dbDelete('usuarios',login);
-  renderUsuariosAdmin();
-  showToast('Usuário removido.');
+  mostrarConfirmar('Excluir usuário', `Excluir o usuário "${login}"? Esta ação não pode ser desfeita.`, async () => {
+    await dbDelete('usuarios', login);
+    renderUsuariosAdmin();
+    showToast('Usuário removido.');
+  });
 }
 
 // =====================================================
@@ -1041,13 +1046,74 @@ async function confirmarFecharPrograma() {
 }
 
 // =====================================================
-// TOAST
+// TOAST (5.5 — durações por tipo + botão X)
 // =====================================================
 let toastTimer;
-function showToast(msg,tipo=false){
-  const t=document.getElementById('toast');t.textContent=msg;
-  t.className='toast show'+(tipo===true?' green':tipo==='red'?' red':'');
-  clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.className='toast',2800);
+function showToast(msg, tipo=false) {
+  const t = document.getElementById('toast');
+  t.innerHTML = `<span>${msg}</span><button class="toast-close" onclick="fecharToast()">✕</button>`;
+  t.className = 'toast show' + (tipo===true?' green':tipo==='red'?' red':'');
+  clearTimeout(toastTimer);
+  const duration = tipo === 'red' ? 5000 : 3000;
+  toastTimer = setTimeout(() => t.className = 'toast', duration);
+}
+function fecharToast() {
+  clearTimeout(toastTimer);
+  document.getElementById('toast').className = 'toast';
+}
+
+// =====================================================
+// MODAL CONFIRMAÇÃO CUSTOMIZADO (5.7)
+// =====================================================
+let _confirmarCallback = null;
+function mostrarConfirmar(titulo, msg, callback) {
+  document.getElementById('confirmar-titulo').textContent = titulo;
+  document.getElementById('confirmar-msg').textContent   = msg;
+  _confirmarCallback = callback;
+  document.getElementById('modal-confirmar').classList.add('open');
+  setTimeout(() => document.getElementById('confirmar-btn-ok').focus(), 80);
+}
+function fecharConfirmar() {
+  document.getElementById('modal-confirmar').classList.remove('open');
+  _confirmarCallback = null;
+}
+function confirmarAcao() {
+  document.getElementById('modal-confirmar').classList.remove('open');
+  if (_confirmarCallback) _confirmarCallback();
+  _confirmarCallback = null;
+}
+
+// =====================================================
+// TIMEOUT DE SESSÃO (5.3 — 30 min de inatividade)
+// =====================================================
+const TIMEOUT_SESSAO = 30 * 60 * 1000;
+const AVISO_TIMEOUT  =  2 * 60 * 1000;
+let timerSessao = null, timerAviso = null;
+
+function resetarTimeoutSessao() {
+  if (!usuarioLogado) return;
+  clearTimeout(timerSessao);
+  clearTimeout(timerAviso);
+  timerAviso = setTimeout(() => {
+    showToast('Sessão expira em 2 minutos por inatividade.', 'red');
+  }, TIMEOUT_SESSAO - AVISO_TIMEOUT);
+  timerSessao = setTimeout(() => {
+    logout();
+    showToast('Sessão encerrada por inatividade.', 'red');
+  }, TIMEOUT_SESSAO);
+}
+
+function iniciarTimeoutSessao() {
+  resetarTimeoutSessao();
+  ['click','keydown','mousemove','touchstart'].forEach(ev =>
+    document.addEventListener(ev, resetarTimeoutSessao, { passive: true })
+  );
+}
+
+function pararTimeoutSessao() {
+  clearTimeout(timerSessao);
+  clearTimeout(timerAviso);
+  timerSessao = null; timerAviso = null;
 }
 
 // =====================================================
@@ -1133,10 +1199,48 @@ _bc.postMessage('ping');
 boot();
 
 // Fechar modal clicando fora
-document.getElementById('modal-fechamento').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
-document.getElementById('modal-venda').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
-document.getElementById('modal-excluir-venda').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
-document.getElementById('modal-fechar-programa').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
-document.getElementById('modal-recovery').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
-document.getElementById('modal-sucesso').addEventListener('click',function(e){if(e.target===this)fecharSucesso();});
-document.getElementById('modal-duplicado').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
+// Fechar modal clicando fora
+[
+  ['modal-fechamento',    null],
+  ['modal-venda',         null],
+  ['modal-excluir-venda', null],
+  ['modal-fechar-programa', null],
+  ['modal-recovery',      null],
+  ['modal-confirmar',     'fecharConfirmar'],
+  ['modal-sucesso',       'fecharSucesso'],
+  ['modal-duplicado',     null],
+].forEach(([id, fn]) => {
+  document.getElementById(id)?.addEventListener('click', function(e) {
+    if (e.target !== this) return;
+    if (fn) window[fn]();
+    else this.classList.remove('open');
+  });
+});
+
+// 5.4 — Atalhos de teclado
+document.addEventListener('keydown', e => {
+  // Fechar qualquer modal aberto com Esc
+  if (e.key === 'Escape') {
+    const abertos = document.querySelectorAll('.modal-overlay.open, .admin-modal-overlay.open');
+    abertos.forEach(m => m.classList.remove('open'));
+    if (_confirmarCallback) fecharConfirmar();
+    return;
+  }
+  // F1–F4 navegam entre abas (apenas quando o app está visível)
+  if (!usuarioLogado) return;
+  const mapa = { F1:'caixa', F2:'estoque', F3:'vendas' };
+  if (mapa[e.key]) { e.preventDefault(); navTo(mapa[e.key]); }
+});
+
+// 5.2 — Validação em tempo real no formulário de produto
+document.getElementById('m-nome')?.addEventListener('input', function() {
+  this.style.borderColor = this.value.trim() ? '' : 'var(--red)';
+});
+document.getElementById('m-preco-venda')?.addEventListener('input', function() {
+  const v = parseFloat(this.value.replace(',','.'));
+  this.style.borderColor = (!isNaN(v) && v > 0) ? '' : 'var(--red)';
+});
+document.getElementById('m-estoque')?.addEventListener('input', function() {
+  const v = parseInt(this.value);
+  this.style.borderColor = (!isNaN(v) && v >= 0) ? '' : 'var(--red)';
+});
