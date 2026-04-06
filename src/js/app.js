@@ -1,0 +1,1053 @@
+// =====================================================
+// ESTADO DA APLICAÇÃO
+// =====================================================
+let db;
+let dbPronto = false;
+let produtos = [], carrinho = [], vendas = [];
+let openSince = null, trocoInicial = 0, editandoId = null, usuarioLogado = null;
+let sessaoAtualId = null, sessaoPendente = null;
+let pgtoSelecionado = 'dinheiro';
+let adminLogado = null, editandoUsuario = null;
+let clockTimer = null, toastTimer;
+
+// =====================================================
+// CONSTANTES
+// =====================================================
+const PAGAMENTOS = { dinheiro:'Dinheiro', pix:'PIX', debito:'Débito', credito:'Crédito', fiado:'Fiado' };
+
+const hoje = () => new Date().toISOString().slice(0,10);
+const fmt  = v => 'R$ '+Number(v).toFixed(2).replace('.',',');
+
+// =====================================================
+// HELPERS
+// =====================================================
+function calcDuracao(inicio) {
+  const diff = inicio ? Math.floor((Date.now() - new Date(inicio)) / 1000) : 0;
+  const hh = String(Math.floor(diff / 3600)).padStart(2,'0');
+  const mm = String(Math.floor((diff % 3600) / 60)).padStart(2,'0');
+  return { hh, mm, str: `${hh}h${mm}min` };
+}
+
+function handleError(e, msg, displayEl) {
+  console.error(msg, e);
+  if (displayEl) {
+    displayEl.textContent = msg + (e?.message ? ': ' + e.message : '');
+    displayEl.classList.add('show');
+  } else {
+    showToast(msg, 'red');
+  }
+}
+
+// =====================================================
+// SEGURANÇA — HASH DE SENHAS (PBKDF2 / Web Crypto API)
+// =====================================================
+function gerarSalt() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)))
+    .map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+async function hashSenha(senha, salt) {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', enc.encode(senha), 'PBKDF2', false, ['deriveBits']
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name:'PBKDF2', salt:enc.encode(salt), iterations:100000, hash:'SHA-256' },
+    keyMaterial, 256
+  );
+  return Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+// =====================================================
+// INDEXEDDB
+// =====================================================
+function initDB() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open('MercadinhoDB_v4', 2);
+    req.onupgradeneeded = e => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains('usuarios'))
+        d.createObjectStore('usuarios', { keyPath:'usuario' });
+      if (!d.objectStoreNames.contains('produtos'))
+        d.createObjectStore('produtos', { keyPath:'id', autoIncrement:true });
+      if (!d.objectStoreNames.contains('vendas')) {
+        const s = d.createObjectStore('vendas', { keyPath:'id', autoIncrement:true });
+        s.createIndex('data','data',{unique:false});
+      }
+      if (!d.objectStoreNames.contains('caixa'))
+        d.createObjectStore('caixa', { keyPath:'chave' });
+      if (!d.objectStoreNames.contains('sessoes')) {
+        const s = d.createObjectStore('sessoes', { keyPath:'id', autoIncrement:true });
+        s.createIndex('data','data',{unique:false});
+      }
+    };
+    req.onsuccess = e => { db = e.target.result; res(); };
+    req.onerror = () => rej(req.error);
+  });
+}
+
+function dbGet(s,k)    {
+  return new Promise((res,rej)=>{
+    try {
+      const tx = db.transaction(s,'readonly');
+      const req = tx.objectStore(s).get(k);
+      req.onsuccess = () => res(req.result);
+      req.onerror   = () => rej(new Error('dbGet falhou: '+req.error));
+    } catch(e){ rej(e); }
+  });
+}
+function dbGetAll(s) {
+  return new Promise((res,rej)=>{
+    try {
+      const tx = db.transaction(s,'readonly');
+      const req = tx.objectStore(s).getAll();
+      req.onsuccess = () => res(req.result);
+      req.onerror   = () => rej(new Error('dbGetAll falhou: '+req.error));
+    } catch(e){ rej(e); }
+  });
+}
+function dbPut(s,o) {
+  return new Promise((res,rej)=>{
+    try {
+      const tx = db.transaction(s,'readwrite');
+      const req = tx.objectStore(s).put(o);
+      req.onsuccess = () => res(req.result);
+      req.onerror   = () => rej(new Error('dbPut falhou: '+req.error));
+    } catch(e){ rej(e); }
+  });
+}
+function dbAdd(s,o) {
+  return new Promise((res,rej)=>{
+    try {
+      const tx = db.transaction(s,'readwrite');
+      const req = tx.objectStore(s).add(o);
+      req.onsuccess = () => res(req.result);
+      req.onerror   = () => rej(new Error('dbAdd falhou: '+req.error));
+      tx.onerror    = () => rej(new Error('transação falhou: '+tx.error));
+    } catch(e){ rej(e); }
+  });
+}
+function dbDelete(s,k) {
+  return new Promise((res,rej)=>{
+    try {
+      const tx = db.transaction(s,'readwrite');
+      const req = tx.objectStore(s).delete(k);
+      req.onsuccess = () => res();
+      req.onerror   = () => rej(new Error('dbDelete falhou: '+req.error));
+    } catch(e){ rej(e); }
+  });
+}
+function dbByIdx(s,i,v) {
+  return new Promise((res,rej)=>{
+    try {
+      const tx = db.transaction(s,'readonly');
+      const req = tx.objectStore(s).index(i).getAll(v);
+      req.onsuccess = () => res(req.result);
+      req.onerror   = () => rej(new Error('dbByIdx falhou: '+req.error));
+    } catch(e){ rej(e); }
+  });
+}
+
+// =====================================================
+// SEED (dados iniciais de exemplo)
+// =====================================================
+const SEED = [
+  {nome:'Pão Francês',        barras:'',categoria:'Padaria',        unidade:'un',preco:0.75, custo:0.40,estoque:98, vendidos:120},
+  {nome:'Água Mineral 500ml', barras:'',categoria:'Bebidas',        unidade:'un',preco:2.00, custo:1.10,estoque:53, vendidos:95},
+  {nome:'Leite Integral 1L',  barras:'',categoria:'Laticínios',     unidade:'un',preco:4.50, custo:3.20,estoque:32, vendidos:80},
+  {nome:'Açúcar 1kg',         barras:'',categoria:'Mercearia',      unidade:'un',preco:4.20, custo:2.90,estoque:40, vendidos:75},
+  {nome:'Café 500g',          barras:'',categoria:'Mercearia',      unidade:'un',preco:12.50,custo:8.80,estoque:18, vendidos:68},
+  {nome:'Refrigerante 2L',    barras:'',categoria:'Bebidas',        unidade:'un',preco:8.90, custo:5.60,estoque:25, vendidos:62},
+  {nome:'Arroz 5kg',          barras:'',categoria:'Grãos e Cereais',unidade:'un',preco:22.90,custo:16.0,estoque:15, vendidos:45},
+  {nome:'Óleo de Soja 900ml', barras:'',categoria:'Mercearia',      unidade:'un',preco:6.90, custo:5.00,estoque:22, vendidos:40},
+  {nome:'Feijão Carioca 1kg', barras:'',categoria:'Grãos e Cereais',unidade:'un',preco:7.80, custo:5.50,estoque:20, vendidos:35},
+  {nome:'Macarrão 500g',      barras:'',categoria:'Mercearia',      unidade:'un',preco:3.50, custo:2.20,estoque:30, vendidos:28},
+  {nome:'Frango KG',          barras:'',categoria:'Carnes',         unidade:'kg', preco:12.00,custo:8.50,estoque:10, vendidos:20},
+  {nome:'Banana Prata',       barras:'',categoria:'Hortifruti',     unidade:'kg', preco:4.50, custo:2.80,estoque:8,  vendidos:15},
+];
+
+// =====================================================
+// LOGIN — verifica contra banco de dados
+// =====================================================
+async function fazerLogin() {
+  const u = document.getElementById('login-user').value.trim().toLowerCase();
+  const p = document.getElementById('login-pass').value;
+  const err = document.getElementById('login-err');
+  if (!u || !p) { err.textContent='Preencha usuário e senha.'; err.classList.add('show'); return; }
+  if (!dbPronto) { err.textContent='Sistema iniciando, aguarde...'; err.classList.add('show'); return; }
+  try {
+    const reg = await dbGet('usuarios', u);
+    let senhaCorreta = false;
+    if (reg) {
+      if (reg.salt) {
+        const hash = await hashSenha(p, reg.salt);
+        senhaCorreta = hash === reg.senha;
+      } else {
+        // Migração: senha antiga em plaintext → converte para hash no primeiro login
+        senhaCorreta = reg.senha === p;
+        if (senhaCorreta) {
+          const salt = gerarSalt();
+          reg.senha = await hashSenha(p, salt);
+          reg.salt = salt;
+          await dbPut('usuarios', reg);
+        }
+      }
+    }
+    if (senhaCorreta) {
+      err.classList.remove('show');
+      usuarioLogado = u;
+      document.getElementById('tela-login').classList.add('hidden');
+      await iniciarApp();
+    } else {
+      err.textContent='Usuário ou senha incorretos.';
+      err.classList.add('show');
+      document.getElementById('login-pass').value='';
+      document.getElementById('login-pass').focus();
+    }
+  } catch(e) {
+    err.textContent='Erro ao acessar banco de dados.';
+    err.classList.add('show');
+  }
+}
+
+function logout() {
+  usuarioLogado=null; openSince=null; carrinho=[];
+  document.getElementById('tela-login').classList.remove('hidden');
+  document.getElementById('topbar').style.display='none';
+  document.getElementById('app-layout').style.display='none';
+  document.getElementById('login-user').value='';
+  document.getElementById('login-pass').value='';
+}
+
+let sessaoAtualId = null;
+let sessaoPendente = null;
+
+async function iniciarApp() {
+  document.getElementById('topbar-user').textContent='👤 '+usuarioLogado;
+
+  // 2.1 — Verificar sessão incompleta do mesmo operador
+  const todasSessoes = await dbGetAll('sessoes');
+  sessaoPendente = todasSessoes.find(s => s.status === 'aberta' && s.operador === usuarioLogado) || null;
+
+  if (sessaoPendente) {
+    const abertura = new Date(sessaoPendente.abertoEm).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    document.getElementById('recovery-info').textContent =
+      `Caixa aberto em ${abertura} pelo operador "${usuarioLogado}" não foi fechado corretamente.`;
+    document.getElementById('modal-recovery').classList.add('open');
+    return;
+  }
+
+  await abrirNovaSessao();
+}
+
+async function recuperarSessaoPendente() {
+  document.getElementById('modal-recovery').classList.remove('open');
+  sessaoAtualId = sessaoPendente.id;
+  openSince = new Date(sessaoPendente.abertoEm);
+  const estado = await dbGet('caixa', 'estado');
+  trocoInicial = estado?.trocoInicial || 0;
+  sessaoPendente = null;
+  mostrarApp();
+}
+
+async function descartarSessaoPendente() {
+  document.getElementById('modal-recovery').classList.remove('open');
+  try {
+    const s = await dbGet('sessoes', sessaoPendente.id);
+    if (s) { s.status = 'descartada'; await dbPut('sessoes', s); }
+  } catch(e) { handleError(e, 'Erro ao descartar sessão'); }
+  sessaoPendente = null;
+  await abrirNovaSessao();
+}
+
+async function abrirNovaSessao() {
+  openSince = new Date();
+  trocoInicial = 0;
+  await dbPut('caixa',{chave:'estado',aberto:true,abertoEm:openSince.toISOString(),trocoInicial:0});
+  const sessao = {
+    data: hoje(),
+    operador: usuarioLogado,
+    abertoEm: openSince.toISOString(),
+    abertoHora: openSince.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}),
+    fechadoEm: null,
+    fechadoHora: null,
+    duracao: null,
+    totalVendas: 0,
+    numVendas: 0,
+    status: 'aberta'
+  };
+  sessaoAtualId = await dbAdd('sessoes', sessao);
+  mostrarApp();
+}
+
+// =====================================================
+// CAIXA
+// =====================================================
+function mostrarApp() {
+  document.getElementById('topbar').style.display='flex';
+  document.getElementById('app-layout').style.display='flex';
+  updateClock();
+  renderCaixa();
+}
+
+function fecharCaixa() {
+  const totalV=vendas.reduce((s,v)=>s+v.total,0);
+  const { hh, mm } = calcDuracao(openSince);
+  const ab=openSince?openSince.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'--';
+  const fe=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  document.getElementById('resumo-fechamento').innerHTML=`
+    <div class="fechamento-row"><span class="fl">Abertura</span><span class="fv">${ab}</span></div>
+    <div class="fechamento-row"><span class="fl">Fechamento</span><span class="fv">${fe}</span></div>
+    <div class="fechamento-row"><span class="fl">Tempo aberto</span><span class="fv">${hh}h${mm}min</span></div>
+    <div class="fechamento-row"><span class="fl">Troco inicial</span><span class="fv">${fmt(trocoInicial)}</span></div>
+    <div class="fechamento-row"><span class="fl">Nº de vendas</span><span class="fv">${vendas.length}</span></div>
+    <div class="fechamento-row"><span class="fl">Total em vendas</span><span class="fv green">${fmt(totalV)}</span></div>
+    <div class="fechamento-row"><span class="fl">Total em caixa</span><span class="fv green">${fmt(totalV+trocoInicial)}</span></div>`;
+  document.getElementById('modal-fechamento').classList.add('open');
+}
+
+async function confirmarFechamento() {
+  const totalV = vendas.reduce((s,v)=>s+v.total,0);
+  const agora = new Date();
+  const { hh, mm, str: durStr } = calcDuracao(openSince);
+
+  // Salvar sessão fechada no banco
+  if(sessaoAtualId) {
+    try {
+      const sessao = await dbGet('sessoes', sessaoAtualId);
+      if(sessao) {
+        sessao.fechadoEm   = agora.toISOString();
+        sessao.fechadoHora = agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+        sessao.duracao     = durStr;
+        sessao.totalVendas = totalV;
+        sessao.numVendas   = vendas.length;
+        sessao.status      = 'fechada';
+        await dbPut('sessoes', sessao);
+      }
+    } catch(e){ handleError(e, 'Erro ao salvar sessão'); }
+  }
+
+  await dbPut('caixa',{chave:'estado',aberto:false});
+  document.getElementById('modal-fechamento').classList.remove('open');
+  document.getElementById('topbar').style.display='none';
+  document.getElementById('app-layout').style.display='none';
+  vendas=[];carrinho=[];openSince=null;trocoInicial=0;sessaoAtualId=null;
+  document.getElementById('tela-login').classList.remove('hidden');
+  document.getElementById('login-user').value='';
+  document.getElementById('login-pass').value='';
+  navTo('caixa');
+  showToast('Caixa fechado. Até logo!');
+}
+
+function updateClock() {
+  if(!openSince) return;
+  const d=Math.floor((Date.now()-openSince)/1000);
+  document.getElementById('clock-display').textContent=
+    String(Math.floor(d/3600)).padStart(2,'0')+':'+String(Math.floor((d%3600)/60)).padStart(2,'0');
+}
+let clockTimer = null;
+function iniciarClock() {
+  if (clockTimer) clearInterval(clockTimer);
+  clockTimer = setInterval(updateClock, 1000);
+}
+iniciarClock();
+
+function navTo(page) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('page-'+page).classList.add('active');
+  document.getElementById('nav-'+page).classList.add('active');
+  if(page==='estoque') renderEstoque();
+  if(page==='vendas'){const f=document.getElementById('filtro-data');if(!f.value)f.value=hoje();renderVendas();}
+}
+
+// =====================================================
+// CAIXA - TOP 10
+// =====================================================
+function renderCaixa() {
+  const q=(document.getElementById('search-input')?.value||'').trim().toLowerCase();
+  const grid=document.getElementById('produtos-grid');
+  grid.innerHTML='';
+  let lista;
+  if(q){
+    lista=produtos.filter(p=>p.nome.toLowerCase().includes(q)||(p.barras||'').includes(q));
+  } else {
+    lista=[...produtos].sort((a,b)=>(b.vendidos||0)-(a.vendidos||0)).slice(0,10);
+  }
+  if(lista.length===0){
+    grid.innerHTML='<div style="color:var(--muted);font-size:14px;font-weight:600;padding:20px 0;grid-column:1/-1">Nenhum produto encontrado.</div>';
+    return;
+  }
+  lista.forEach((p,i)=>{
+    const card=document.createElement('div');
+    card.className='produto-card'+(p.estoque<=0?' sem-estoque':'');
+    const un=p.unidade||'un';
+    card.innerHTML=`
+      ${!q&&i<3?`<div class="top-rank">#${i+1}</div>`:''}
+      <div class="p-nome">${p.nome}</div>
+      <div class="p-cat">${p.categoria||''}</div>
+      <div class="p-preco">${fmt(p.preco)}<span style="font-size:11px;color:var(--muted);font-weight:600;margin-left:2px">/${un}</span></div>
+      <div class="p-footer">
+        <span class="p-estoque">${p.estoque} ${un}</span>
+        <button class="btn-add" onclick="addCarrinho(${p.id})">+</button>
+      </div>`;
+    grid.appendChild(card);
+  });
+}
+
+// =====================================================
+// CARRINHO
+// =====================================================
+function addCarrinho(id){
+  const p=produtos.find(x=>x.id===id);
+  if(!p||p.estoque<=0) return;
+  const item=carrinho.find(x=>x.id===id);
+  if(item){
+    if(item.qty>=p.estoque){showToast('Estoque insuficiente!','red');return;}
+    item.qty++;
+  } else {
+    carrinho.push({id,nome:p.nome,preco:p.preco,unidade:p.unidade||'un',qty:1});
+  }
+  renderCarrinho();
+  showToast(p.nome+' adicionado',true);
+}
+
+function changeQty(id,delta){
+  const idx=carrinho.findIndex(x=>x.id===id);
+  if(idx===-1) return;
+  carrinho[idx].qty+=delta;
+  if(carrinho[idx].qty<=0) carrinho.splice(idx,1);
+  renderCarrinho();
+}
+
+function renderCarrinho(){
+  const empty=carrinho.length===0;
+  document.getElementById('carr-vazio').style.display=empty?'flex':'none';
+  document.getElementById('carr-items').style.display=empty?'none':'flex';
+  document.getElementById('carr-footer').style.display=empty?'none':'block';
+  const el=document.getElementById('carr-items');
+  el.innerHTML='';
+  let total=0;
+  carrinho.forEach(item=>{
+    total+=item.preco*item.qty;
+    const d=document.createElement('div');
+    d.className='carrinho-item';
+    d.innerHTML=`
+      <div class="ci-nome">${item.nome}</div>
+      <div class="ci-ctrl">
+        <button class="btn-qty" onclick="changeQty(${item.id},-1)">−</button>
+        <span class="ci-qty">${item.qty}</span>
+        <button class="btn-qty" onclick="changeQty(${item.id},1)">+</button>
+      </div>
+      <div class="ci-preco">${fmt(item.preco*item.qty)}</div>`;
+    el.appendChild(d);
+  });
+  document.getElementById('total-value').textContent=fmt(total);
+}
+
+function limparCarrinho(){carrinho=[];renderCarrinho();}
+
+// =====================================================
+// MODAL PAGAMENTO
+// =====================================================
+
+function finalizarVenda() {
+  if(carrinho.length===0) return;
+  const total = carrinho.reduce((s,i)=>s+i.preco*i.qty, 0);
+  document.getElementById('venda-total-display').textContent = fmt(total);
+  document.getElementById('valor-recebido').value = '';
+  document.getElementById('troco-display').style.display = 'none';
+  selecionarPgto('dinheiro');
+  document.getElementById('modal-venda').classList.add('open');
+}
+
+function selecionarPgto(tipo) {
+  pgtoSelecionado = tipo;
+  document.querySelectorAll('.pgto-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('pgto-'+tipo).classList.add('active');
+  const vrBox = document.getElementById('valor-recebido-box');
+  // Só mostra "valor recebido" para dinheiro
+  vrBox.style.display = tipo==='dinheiro' ? 'block' : 'none';
+  const btn = document.getElementById('btn-confirmar-venda');
+  if(tipo!=='dinheiro'){
+    btn.style.opacity='1'; btn.style.cursor='pointer'; btn.disabled=false;
+    document.getElementById('troco-display').style.display='none';
+  } else {
+    btn.style.opacity='.5'; btn.style.cursor='not-allowed'; btn.disabled=true;
+  }
+}
+
+function calcularTroco() {
+  const total = carrinho.reduce((s,i)=>s+i.preco*i.qty, 0);
+  const recebido = parseFloat(document.getElementById('valor-recebido').value)||0;
+  const btn = document.getElementById('btn-confirmar-venda');
+  const trocoBox = document.getElementById('troco-display');
+  if(recebido >= total) {
+    const troco = recebido - total;
+    document.getElementById('troco-valor').textContent = fmt(troco);
+    trocoBox.style.display = 'block';
+    btn.style.opacity='1'; btn.style.cursor='pointer'; btn.disabled=false;
+  } else {
+    trocoBox.style.display = 'none';
+    btn.style.opacity='.5'; btn.style.cursor='not-allowed'; btn.disabled=true;
+  }
+}
+
+async function confirmarVenda() {
+  if(carrinho.length===0) return;
+  document.getElementById('modal-venda').classList.remove('open');
+  const total = carrinho.reduce((s,i)=>s+i.preco*i.qty, 0);
+  const recebido = parseFloat(document.getElementById('valor-recebido').value)||total;
+  const troco = pgtoSelecionado==='dinheiro' ? Math.max(0, recebido-total) : 0;
+  const itensStr = carrinho.map(i=>`${i.qty}x ${i.nome}`).join(', ');
+  const agora = new Date();
+  const hora = agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+
+  for(const ci of carrinho){
+    const p=produtos.find(x=>x.id===ci.id);
+    if(p){p.estoque=Math.max(0,p.estoque-ci.qty);p.vendidos=(p.vendidos||0)+ci.qty;await dbPut('produtos',p);}
+  }
+
+  const pgtoLabel = PAGAMENTOS[pgtoSelecionado];
+  const venda={data:hoje(),hora,itensStr,total,pagamento:pgtoLabel,recebido,troco,criadoEm:agora.toISOString()};
+  const vid=await dbAdd('vendas',venda);
+  venda.id=vid; vendas.unshift(venda);
+
+  carrinho=[];
+  renderCarrinho();
+  renderCaixa();
+
+  let msg = `Venda #${vid} — ${fmt(total)} (${pgtoLabel})`;
+  if(pgtoSelecionado==='dinheiro' && troco>0) msg += ` · Troco: ${fmt(troco)}`;
+  showToast(msg, true);
+}
+
+// =====================================================
+// ESTOQUE
+// =====================================================
+function renderEstoque(){
+  const q=(document.getElementById('estoque-busca')?.value||'').toLowerCase();
+  const lista=q?produtos.filter(p=>p.nome.toLowerCase().includes(q)||(p.barras||'').includes(q)):[...produtos];
+  const tbody=document.getElementById('estoque-tbody');
+  tbody.innerHTML='';
+  lista.forEach(p=>{
+    const un=p.unidade||'un';
+    const badge=p.estoque<=0?'<span class="badge-zero">Zerado</span>':p.estoque<=10?'<span class="badge-baixo">Baixo</span>':'<span class="badge-ok">Normal</span>';
+    const margem=p.custo>0?`<span style="color:var(--green);font-weight:700">${(((p.preco-p.custo)/p.custo)*100).toFixed(0)}%</span>`:'—';
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td><strong>${p.nome}</strong></td>
+      <td style="color:var(--muted);font-size:12px">${p.barras||'—'}</td>
+      <td>${p.categoria||'—'}</td>
+      <td><span style="background:var(--bg);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700">${un.toUpperCase()}</span></td>
+      <td style="color:var(--green);font-weight:700">${fmt(p.preco)}</td>
+      <td>${p.custo>0?fmt(p.custo):'—'}</td>
+      <td>${margem}</td>
+      <td>${p.estoque} ${un}</td>
+      <td>${badge}</td>
+      <td style="white-space:nowrap">
+        <button class="btn-edit" onclick="abrirEditar(${p.id})">✏️</button>
+        <button class="btn-del"  onclick="deletarProduto(${p.id})">🗑️</button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+  if(lista.length===0)
+    tbody.innerHTML='<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:28px">Nenhum produto encontrado.</td></tr>';
+}
+
+// =====================================================
+// MODAL PRODUTO
+// =====================================================
+function abrirModalProduto(){
+  editandoId=null;
+  document.getElementById('modal-titulo').textContent='Novo Produto';
+  document.getElementById('btn-salvar-produto').textContent='Cadastrar';
+  ['m-nome','m-barras','m-preco-venda','m-preco-custo','m-estoque'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('m-cat').value='Outros';
+  document.getElementById('m-unidade').value='un';
+  document.getElementById('bd-produto').classList.add('open');
+  document.getElementById('modal-produto').classList.add('open');
+  setTimeout(()=>document.getElementById('m-nome').focus(),80);
+}
+
+function abrirEditar(id){
+  const p=produtos.find(x=>x.id===id);if(!p) return;
+  editandoId=id;
+  document.getElementById('modal-titulo').textContent='Editar Produto';
+  document.getElementById('btn-salvar-produto').textContent='Salvar';
+  document.getElementById('m-nome').value=p.nome;
+  document.getElementById('m-barras').value=p.barras||'';
+  document.getElementById('m-cat').value=p.categoria||'Outros';
+  document.getElementById('m-preco-venda').value=String(p.preco).replace('.',',');
+  document.getElementById('m-preco-custo').value=p.custo?String(p.custo).replace('.',','):'';
+  document.getElementById('m-estoque').value=p.estoque;
+  document.getElementById('m-unidade').value=p.unidade||'un';
+  document.getElementById('bd-produto').classList.add('open');
+  document.getElementById('modal-produto').classList.add('open');
+}
+
+function fecharModalProduto(){
+  document.getElementById('bd-produto').classList.remove('open');
+  document.getElementById('modal-produto').classList.remove('open');
+}
+
+function parseMoeda(v) {
+  if(v===null||v===undefined||String(v).trim()==='') return NaN;
+  return parseFloat(String(v).trim().replace(',','.'));
+}
+
+function fecharSucesso() {
+  document.getElementById('modal-sucesso').classList.remove('open');
+}
+
+function fecharSucessoNovo() {
+  document.getElementById('modal-sucesso').classList.remove('open');
+  abrirModalProduto();
+}
+
+async function salvarProduto(){
+  const nome      = document.getElementById('m-nome').value.trim();
+  const barras    = document.getElementById('m-barras').value.trim();
+  const categoria = document.getElementById('m-cat').value;
+  const precoRaw  = document.getElementById('m-preco-venda').value;
+  const custoRaw  = document.getElementById('m-preco-custo').value;
+  const estoqueRaw= document.getElementById('m-estoque').value;
+  const unidade   = document.getElementById('m-unidade').value;
+
+  const preco   = parseMoeda(precoRaw);
+  const custo   = parseMoeda(custoRaw) || 0;
+  const estoque = Math.max(0, parseInt(estoqueRaw) || 0);
+
+  if(!nome)                  { showToast('Informe o nome do produto!','red'); return; }
+  if(isNaN(preco)||preco<=0) { showToast('Preço de venda inválido: "'+precoRaw+'"','red'); return; }
+  if(!dbPronto)              { showToast('Banco não está pronto, aguarde.','red'); return; }
+
+  // Verificar duplicatas (ignora o próprio produto ao editar)
+  const outros = produtos.filter(p => p.id !== editandoId);
+
+  const nomeRepetido = outros.find(p => p.nome.toLowerCase().trim() === nome.toLowerCase());
+  if(nomeRepetido) {
+    document.getElementById('duplicado-msg').textContent =
+      'Já existe um produto com o nome "'+nomeRepetido.nome+'". Altere o nome antes de salvar.';
+    document.getElementById('modal-duplicado').classList.add('open');
+    return;
+  }
+
+  if(barras) {
+    const barrasRepetido = outros.find(p => p.barras && p.barras.trim() === barras);
+    if(barrasRepetido) {
+      document.getElementById('duplicado-msg').textContent =
+        'O código de barras '+barras+' já está cadastrado no produto "'+barrasRepetido.nome+'".';
+      document.getElementById('modal-duplicado').classList.add('open');
+      return;
+    }
+  }
+
+  const btn = document.getElementById('btn-salvar-produto');
+  btn.disabled = true;
+  btn.textContent = 'Salvando...';
+
+  try {
+    if(editandoId){
+      const p = produtos.find(x=>x.id===editandoId);
+      if(!p){ showToast('Produto não encontrado!','red'); return; }
+      Object.assign(p,{nome,barras,categoria,preco,custo,estoque,unidade});
+      await dbPut('produtos', p);
+      fecharModalProduto();
+      renderEstoque();
+      renderCaixa();
+      showToast('✅ Produto atualizado com sucesso!', true);
+    } else {
+      const obj = {nome,barras,categoria,preco,custo,estoque,unidade,vendidos:0};
+      const nid  = await dbAdd('produtos', obj);
+      produtos.push({...obj, id:nid});
+      fecharModalProduto();
+      renderEstoque();
+      renderCaixa();
+      // Mostrar popup de sucesso
+      document.getElementById('sucesso-msg').textContent =
+        '"'+nome+'" foi adicionado ao estoque com sucesso!';
+      document.getElementById('modal-sucesso').classList.add('open');
+    }
+  } catch(e) {
+    console.error('Erro salvarProduto:', e);
+    showToast('❌ Erro: '+e.message, 'red');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = editandoId ? 'Salvar' : 'Cadastrar';
+  }
+}
+
+async function deletarProduto(id){
+  if(!confirm('Excluir este produto?')) return;
+  await dbDelete('produtos',id);
+  produtos=produtos.filter(x=>x.id!==id);
+  renderEstoque(); renderCaixa();
+  showToast('Produto removido');
+}
+
+// =====================================================
+// VENDAS
+// =====================================================
+async function renderVendas(){
+  const data=document.getElementById('filtro-data').value;
+  let lista=data?await dbByIdx('vendas','data',data):await dbGetAll('vendas');
+  lista.sort((a,b)=>b.id-a.id);
+  const el=document.getElementById('vendas-list');
+  if(lista.length===0){
+    el.innerHTML='<div style="color:var(--muted);font-size:14px;font-weight:600;padding:16px 0">Nenhuma venda encontrada.</div>';
+  } else {
+    el.innerHTML='';
+    lista.forEach(v=>{
+      const d=document.createElement('div');
+      d.className='venda-row';
+      d.innerHTML=`
+        <span class="venda-num">#${String(v.id).padStart(3,'0')}</span>
+        <span class="venda-hora">${v.hora}</span>
+        <span class="venda-items">${v.itensStr}</span>
+        ${v.pagamento?`<span style="font-size:11px;font-weight:700;background:var(--green-light);color:var(--green-dark);padding:3px 8px;border-radius:20px;white-space:nowrap">${v.pagamento}</span>`:''}
+        <span class="venda-total">${fmt(v.total)}</span>`;
+      const btnDel = document.createElement('button');
+      btnDel.className = 'btn-del-venda';
+      btnDel.title = 'Excluir venda';
+      btnDel.textContent = '🗑️';
+      btnDel.addEventListener('click', () => confirmarExcluirVenda(v.id, v.hora, v.itensStr, fmt(v.total)));
+      d.appendChild(btnDel);
+      el.appendChild(d);
+    });
+  }
+  const tot=lista.reduce((s,v)=>s+v.total,0);
+  document.getElementById('stat-total').textContent=fmt(tot);
+  document.getElementById('stat-num').textContent=lista.length;
+  document.getElementById('stat-ticket').textContent=lista.length?fmt(tot/lista.length):'R$ 0,00';
+}
+
+function confirmarExcluirVenda(id, hora, itens, total){
+  document.getElementById('excluir-venda-id').value = id;
+  document.getElementById('excluir-venda-info').innerHTML =
+    `<strong>#${String(id).padStart(3,'0')}</strong> · ${hora}<br>
+     <span style="color:var(--muted);font-size:13px">${itens}</span><br>
+     <span style="color:var(--green);font-weight:800;font-size:18px;display:block;margin-top:8px">${total}</span>`;
+  document.getElementById('modal-excluir-venda').classList.add('open');
+}
+
+async function excluirVenda(){
+  const id = parseInt(document.getElementById('excluir-venda-id').value);
+  try {
+    await dbDelete('vendas', id);
+    vendas = vendas.filter(v=>v.id!==id);
+    document.getElementById('modal-excluir-venda').classList.remove('open');
+    await renderVendas();
+    showToast('Venda #'+String(id).padStart(3,'0')+' excluída.', false);
+  } catch(e) {
+    showToast('Erro ao excluir: '+e.message,'red');
+  }
+}
+
+// =====================================================
+// PAINEL ADMIN
+// =====================================================
+function abrirLoginAdmin() {
+  document.getElementById('admin-user').value='';
+  document.getElementById('admin-pass').value='';
+  document.getElementById('admin-login-err').classList.remove('show');
+  document.getElementById('modal-login-admin').classList.add('open');
+  setTimeout(()=>document.getElementById('admin-user').focus(),80);
+}
+function fecharLoginAdmin() {
+  document.getElementById('modal-login-admin').classList.remove('open');
+}
+async function loginAdmin() {
+  const u = document.getElementById('admin-user').value.trim().toLowerCase();
+  const p = document.getElementById('admin-pass').value;
+  const err = document.getElementById('admin-login-err');
+  if(!dbPronto){ err.textContent='Sistema iniciando...'; err.classList.add('show'); return; }
+  try {
+    const reg = await dbGet('usuarios', u);
+    let senhaAdminOk = false;
+    if (reg && reg.admin === true) {
+      if (reg.salt) {
+        const hash = await hashSenha(p, reg.salt);
+        senhaAdminOk = hash === reg.senha;
+      } else {
+        senhaAdminOk = reg.senha === p;
+        if (senhaAdminOk) {
+          const salt = gerarSalt();
+          reg.senha = await hashSenha(p, salt);
+          reg.salt = salt;
+          await dbPut('usuarios', reg);
+        }
+      }
+    }
+    if (senhaAdminOk) {
+      adminLogado=u; err.classList.remove('show');
+      fecharLoginAdmin();
+      document.getElementById('tela-login').classList.add('hidden');
+      document.getElementById('admin-logged-user').textContent='👤 '+u;
+      document.getElementById('painel-admin').classList.add('open');
+      const fm=document.getElementById('filtro-mes');
+      if(!fm.value) fm.value=hoje().slice(0,7);
+      adminNavTo('relatorios');
+    } else {
+      err.textContent=reg?'Usuário sem permissão de administrador.':'Usuário ou senha incorretos.';
+      err.classList.add('show');
+      document.getElementById('admin-pass').value='';
+    }
+  } catch(e){ handleError(e, 'Erro ao verificar', err); }
+}
+function fecharAdmin() {
+  document.getElementById('painel-admin').classList.remove('open');
+  document.getElementById('tela-login').classList.remove('hidden');
+  adminLogado=null;
+}
+function adminNavTo(page) {
+  document.querySelectorAll('.admin-page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.admin-nav').forEach(b=>b.classList.remove('active'));
+  document.getElementById('apage-'+page).classList.add('active');
+  document.getElementById('anav-'+page).classList.add('active');
+  if(page==='relatorios') renderRelatorios();
+  if(page==='usuarios')   renderUsuariosAdmin();
+}
+async function renderRelatorios() {
+  const mes=document.getElementById('filtro-mes').value;
+  const todas=await dbGetAll('sessoes');
+  const lista=mes?todas.filter(s=>s.data&&s.data.startsWith(mes)):todas;
+  lista.sort((a,b)=>b.id-a.id);
+  const tbody=document.getElementById('admin-relatorios-tbody');
+  tbody.innerHTML='';
+  lista.forEach(s=>{
+    const tr=document.createElement('tr');
+    const badge=s.status==='aberta'
+      ?'<span class="sessao-badge sessao-aberta">Aberta</span>'
+      :'<span class="sessao-badge sessao-fechada">Fechada</span>';
+    tr.innerHTML=`
+      <td style="color:var(--muted);font-size:12px">#${String(s.id).padStart(3,'0')}</td>
+      <td>${s.data||'—'}</td>
+      <td><strong>${s.operador||'—'}</strong></td>
+      <td>${s.abertoHora||'—'}</td>
+      <td>${s.fechadoHora||'—'}</td>
+      <td>${s.duracao||'—'}</td>
+      <td style="text-align:center">${s.numVendas||0}</td>
+      <td style="color:var(--green);font-weight:800">${fmt(s.totalVendas||0)}</td>
+      <td>${badge}</td>`;
+    tbody.appendChild(tr);
+  });
+  if(lista.length===0)
+    tbody.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:28px">Nenhuma sessão encontrada.</td></tr>';
+  const tot=lista.reduce((s,v)=>s+(v.totalVendas||0),0);
+  document.getElementById('ar-total').textContent=fmt(tot);
+  document.getElementById('ar-sessoes').textContent=lista.length;
+  document.getElementById('ar-media').textContent=lista.length?fmt(tot/lista.length):'R$ 0,00';
+}
+async function renderUsuariosAdmin() {
+  const lista=await dbGetAll('usuarios');
+  const tbody=document.getElementById('admin-usuarios-tbody');
+  tbody.innerHTML='';
+  lista.forEach(u=>{
+    const tr=document.createElement('tr');
+    const perfil=u.admin
+      ?'<span style="background:#ede9fe;color:#6d28d9;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700">Administrador</span>'
+      :'<span style="background:var(--bg);color:var(--muted);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700">Operador</span>';
+    tr.innerHTML=`
+      <td><strong>${u.usuario}</strong></td>
+      <td>${u.nome||'—'}</td>
+      <td>${perfil}</td>
+      <td style="color:var(--muted);font-size:12px">${u.criadoEm?new Date(u.criadoEm).toLocaleDateString('pt-BR'):'—'}</td>
+      <td style="white-space:nowrap">
+        <button class="btn-edit" onclick="editarUsuario('${u.usuario}')">✏️</button>
+        <button class="btn-del"  onclick="deletarUsuario('${u.usuario}')">🗑️</button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+  if(lista.length===0)
+    tbody.innerHTML='<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:28px">Nenhum usuário.</td></tr>';
+}
+function abrirModalNovoUsuario() {
+  editandoUsuario=null;
+  document.getElementById('modal-usuario-titulo').textContent='Novo Usuário';
+  ['u-login','u-nome','u-senha'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('u-perfil').value='operador';
+  document.getElementById('u-login').disabled=false;
+  document.getElementById('usuario-err').classList.remove('show');
+  document.getElementById('modal-usuario').classList.add('open');
+  setTimeout(()=>document.getElementById('u-login').focus(),80);
+}
+async function editarUsuario(login) {
+  const u=await dbGet('usuarios',login); if(!u) return;
+  editandoUsuario=login;
+  document.getElementById('modal-usuario-titulo').textContent='Editar Usuário';
+  document.getElementById('u-login').value=u.usuario;
+  document.getElementById('u-login').disabled=true;
+  document.getElementById('u-nome').value=u.nome||'';
+  document.getElementById('u-senha').value='';
+  document.getElementById('u-perfil').value=u.admin?'admin':'operador';
+  document.getElementById('usuario-err').classList.remove('show');
+  document.getElementById('modal-usuario').classList.add('open');
+}
+function fecharModalUsuario() { document.getElementById('modal-usuario').classList.remove('open'); }
+async function salvarUsuario() {
+  const login=document.getElementById('u-login').value.trim().toLowerCase();
+  const nome=document.getElementById('u-nome').value.trim();
+  const senha=document.getElementById('u-senha').value;
+  const admin=document.getElementById('u-perfil').value==='admin';
+  const err=document.getElementById('usuario-err');
+  if(!login){ err.textContent='Informe o login.'; err.classList.add('show'); return; }
+  if(!editandoUsuario&&!senha){ err.textContent='Informe a senha.'; err.classList.add('show'); return; }
+  try {
+    if(editandoUsuario) {
+      const u=await dbGet('usuarios',editandoUsuario);
+      u.nome=nome; u.admin=admin;
+      if(senha) {
+        u.salt = gerarSalt();
+        u.senha = await hashSenha(senha, u.salt);
+      }
+      await dbPut('usuarios',u);
+      fecharModalUsuario();
+      renderUsuariosAdmin();
+      // popup de sucesso edição
+      document.getElementById('sucesso-usuario-titulo').textContent='Usuário Atualizado!';
+      document.getElementById('sucesso-usuario-msg').textContent=
+        'Os dados do usuário "'+login+'" foram atualizados com sucesso.';
+      document.getElementById('modal-sucesso-usuario').classList.add('open');
+    } else {
+      const existe=await dbGet('usuarios',login);
+      if(existe){ err.textContent='Login já existe.'; err.classList.add('show'); return; }
+      const salt = gerarSalt();
+      const senhaHash = await hashSenha(senha, salt);
+      await dbPut('usuarios',{usuario:login,nome,senha:senhaHash,salt,admin,criadoEm:new Date().toISOString()});
+      fecharModalUsuario();
+      renderUsuariosAdmin();
+      // popup de sucesso cadastro
+      const perfil = admin ? 'Administrador' : 'Operador de Caixa';
+      document.getElementById('sucesso-usuario-titulo').textContent='Usuário Cadastrado!';
+      document.getElementById('sucesso-usuario-msg').textContent=
+        'Login: '+login+(nome?' · Nome: '+nome:'')+' · Perfil: '+perfil;
+      document.getElementById('modal-sucesso-usuario').classList.add('open');
+    }
+  } catch(e){ err.textContent='Erro: '+e.message; err.classList.add('show'); }
+}
+async function deletarUsuario(login) {
+  if(login===adminLogado){ showToast('Não pode excluir o usuário logado.','red'); return; }
+  if(!confirm('Excluir o usuário "'+login+'"?')) return;
+  await dbDelete('usuarios',login);
+  renderUsuariosAdmin();
+  showToast('Usuário removido.');
+}
+
+// =====================================================
+// FECHAR PROGRAMA
+// =====================================================
+function fecharPrograma() {
+  document.getElementById('modal-fechar-programa').classList.add('open');
+}
+
+async function confirmarFecharPrograma() {
+  try { await dbPut('caixa',{chave:'estado',aberto:true,abertoEm:openSince?.toISOString(),trocoInicial}); } catch(e){}
+  window.close();
+  // Fallback: se window.close() não funcionar (browser)
+  setTimeout(()=>{
+    document.getElementById('modal-fechar-programa').classList.remove('open');
+    showToast('Pressione Alt+F4 ou feche pela barra de título para sair.','red');
+  }, 400);
+}
+
+// =====================================================
+// TOAST
+// =====================================================
+let toastTimer;
+function showToast(msg,tipo=false){
+  const t=document.getElementById('toast');t.textContent=msg;
+  t.className='toast show'+(tipo===true?' green':tipo==='red'?' red':'');
+  clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.className='toast',2800);
+}
+
+// =====================================================
+// BOOT
+// =====================================================
+function mostrarPrimeiroAcesso() {
+  document.getElementById('tela-login').classList.add('hidden');
+  document.getElementById('tela-primeiro-acesso').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('setup-nome').focus(), 100);
+}
+
+async function salvarPrimeiroAdmin() {
+  const nome    = document.getElementById('setup-nome').value.trim();
+  const login   = document.getElementById('setup-login').value.trim().toLowerCase();
+  const senha   = document.getElementById('setup-senha').value;
+  const confirma= document.getElementById('setup-confirma').value;
+  const err     = document.getElementById('setup-err');
+
+  if (!nome)                   { err.textContent='Informe seu nome.';              err.classList.add('show'); return; }
+  if (!login)                  { err.textContent='Informe o login.';               err.classList.add('show'); return; }
+  if (senha.length < 4)        { err.textContent='Senha deve ter ao menos 4 caracteres.'; err.classList.add('show'); return; }
+  if (senha !== confirma)      { err.textContent='As senhas não coincidem.';        err.classList.add('show'); return; }
+
+  try {
+    const salt = gerarSalt();
+    const senhaHash = await hashSenha(senha, salt);
+    await dbPut('usuarios', { usuario:login, nome, senha:senhaHash, salt, admin:true, criadoEm:new Date().toISOString() });
+
+    // Carrega produtos e vendas antes de liberar o login
+    produtos = await dbGetAll('produtos');
+    if (produtos.length === 0) {
+      for (const p of SEED) await dbAdd('produtos', p);
+      produtos = await dbGetAll('produtos');
+    }
+    vendas = await dbByIdx('vendas','data',hoje());
+    vendas.sort((a,b)=>b.id-a.id);
+    dbPronto = true;
+
+    document.getElementById('tela-primeiro-acesso').classList.add('hidden');
+    document.getElementById('tela-login').classList.remove('hidden');
+    document.getElementById('login-user').value = login;
+    document.getElementById('login-pass').focus();
+    showToast('Conta criada! Faça login para continuar.', true);
+  } catch(e) {
+    err.textContent = 'Erro ao criar conta: ' + e.message;
+    err.classList.add('show');
+  }
+}
+
+async function boot(){
+  try {
+    await initDB();
+    const todosUsuarios = await dbGetAll('usuarios');
+    if (todosUsuarios.length === 0) {
+      mostrarPrimeiroAcesso();
+      return;
+    }
+    produtos = await dbGetAll('produtos');
+    if(produtos.length===0){
+      for(const p of SEED) await dbAdd('produtos',p);
+      produtos = await dbGetAll('produtos');
+    }
+    vendas = await dbByIdx('vendas','data',hoje());
+    vendas.sort((a,b)=>b.id-a.id);
+    dbPronto = true;
+  } catch(e) {
+    console.error('Erro no boot:',e);
+    showToast('Erro ao iniciar banco: '+e.message,'red');
+  }
+}
+
+// 2.2 — Proteção contra múltiplas abas/janelas
+const _bc = new BroadcastChannel('mercadinho_instancia');
+_bc.onmessage = (e) => {
+  if (e.data === 'ping') {
+    _bc.postMessage('pong');
+  } else if (e.data === 'pong') {
+    showToast('Atenção: o sistema já está aberto em outra janela! Dados podem ficar inconsistentes.', 'red');
+  }
+};
+_bc.postMessage('ping');
+
+boot();
+
+// Fechar modal clicando fora
+document.getElementById('modal-fechamento').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
+document.getElementById('modal-venda').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
+document.getElementById('modal-excluir-venda').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
+document.getElementById('modal-fechar-programa').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
+document.getElementById('modal-recovery').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
+document.getElementById('modal-sucesso').addEventListener('click',function(e){if(e.target===this)fecharSucesso();});
+document.getElementById('modal-duplicado').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
