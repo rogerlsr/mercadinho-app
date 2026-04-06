@@ -221,6 +221,12 @@ body{font-family:'Nunito',sans-serif;background:var(--bg);color:var(--text);heig
 .toast.show{transform:translateY(0);opacity:1}
 .toast.green{background:var(--green)}
 .toast.red{background:var(--red)}
+
+/* PRIMEIRO ACESSO */
+.setup-screen{position:fixed;inset:0;z-index:600;background:linear-gradient(135deg,#1e40af 0%,#3b82f6 100%);display:flex;align-items:center;justify-content:center}
+.setup-screen.hidden{display:none}
+.setup-badge{background:#dbeafe;color:#1d4ed8;font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;display:inline-block;margin-bottom:14px;letter-spacing:.3px}
+.setup-warn{background:#fefce8;border:1.5px solid #fde68a;color:#92400e;border-radius:10px;padding:10px 14px;font-size:12px;font-weight:600;margin-bottom:18px;text-align:left;line-height:1.5}
 </style>
 </head>
 <body>
@@ -251,6 +257,37 @@ body{font-family:'Nunito',sans-serif;background:var(--bg);color:var(--text);heig
 </div>
 
 
+
+<!-- PRIMEIRO ACESSO -->
+<div class="setup-screen hidden" id="tela-primeiro-acesso">
+  <div class="login-card" style="width:420px">
+    <div class="login-logo" style="background:#3b82f6">
+      <svg width="28" height="28" fill="none" stroke="white" stroke-width="2.5" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+    </div>
+    <span class="setup-badge">Primeiro Acesso</span>
+    <div class="login-title">Criar Administrador</div>
+    <div class="login-sub">Defina o login e senha do administrador para começar a usar o sistema</div>
+    <div class="setup-warn">Esta conta terá acesso total ao sistema. Guarde bem a senha — não há como recuperá-la automaticamente.</div>
+    <div class="login-err" id="setup-err"></div>
+    <div class="login-field">
+      <label>Nome</label>
+      <input type="text" id="setup-nome" placeholder="Seu nome" onkeydown="if(event.key==='Enter')salvarPrimeiroAdmin()">
+    </div>
+    <div class="login-field">
+      <label>Login (usuário)</label>
+      <input type="text" id="setup-login" placeholder="ex: admin" autocomplete="username" onkeydown="if(event.key==='Enter')salvarPrimeiroAdmin()">
+    </div>
+    <div class="login-field">
+      <label>Senha (mínimo 4 caracteres)</label>
+      <input type="password" id="setup-senha" placeholder="••••••••" autocomplete="new-password" onkeydown="if(event.key==='Enter')salvarPrimeiroAdmin()">
+    </div>
+    <div class="login-field">
+      <label>Confirmar senha</label>
+      <input type="password" id="setup-confirma" placeholder="••••••••" autocomplete="new-password" onkeydown="if(event.key==='Enter')salvarPrimeiroAdmin()">
+    </div>
+    <button class="btn-login" style="background:#3b82f6" onclick="salvarPrimeiroAdmin()">Criar conta e entrar</button>
+  </div>
+</div>
 
 <!-- MODAL FECHAR PROGRAMA -->
 <div class="modal-overlay" id="modal-fechar-programa">
@@ -707,6 +744,26 @@ body{font-family:'Nunito',sans-serif;background:var(--bg);color:var(--text);heig
 
 <script>
 // =====================================================
+// SEGURANÇA — HASH DE SENHAS (PBKDF2 / Web Crypto API)
+// =====================================================
+function gerarSalt() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)))
+    .map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+async function hashSenha(senha, salt) {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw', enc.encode(senha), 'PBKDF2', false, ['deriveBits']
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name:'PBKDF2', salt:enc.encode(salt), iterations:100000, hash:'SHA-256' },
+    keyMaterial, 256
+  );
+  return Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+// =====================================================
 // INDEXEDDB
 // =====================================================
 let db;
@@ -832,7 +889,23 @@ async function fazerLogin() {
   if (!dbPronto) { err.textContent='Sistema iniciando, aguarde...'; err.classList.add('show'); return; }
   try {
     const reg = await dbGet('usuarios', u);
-    if (reg && reg.senha === p) {
+    let senhaCorreta = false;
+    if (reg) {
+      if (reg.salt) {
+        const hash = await hashSenha(p, reg.salt);
+        senhaCorreta = hash === reg.senha;
+      } else {
+        // Migração: senha antiga em plaintext → converte para hash no primeiro login
+        senhaCorreta = reg.senha === p;
+        if (senhaCorreta) {
+          const salt = gerarSalt();
+          reg.senha = await hashSenha(p, salt);
+          reg.salt = salt;
+          await dbPut('usuarios', reg);
+        }
+      }
+    }
+    if (senhaCorreta) {
       err.classList.remove('show');
       usuarioLogado = u;
       document.getElementById('tela-login').classList.add('hidden');
@@ -1481,7 +1554,11 @@ async function salvarUsuario() {
   try {
     if(editandoUsuario) {
       const u=await dbGet('usuarios',editandoUsuario);
-      u.nome=nome; u.admin=admin; if(senha) u.senha=senha;
+      u.nome=nome; u.admin=admin;
+      if(senha) {
+        u.salt = gerarSalt();
+        u.senha = await hashSenha(senha, u.salt);
+      }
       await dbPut('usuarios',u);
       fecharModalUsuario();
       renderUsuariosAdmin();
@@ -1493,7 +1570,9 @@ async function salvarUsuario() {
     } else {
       const existe=await dbGet('usuarios',login);
       if(existe){ err.textContent='Login já existe.'; err.classList.add('show'); return; }
-      await dbPut('usuarios',{usuario:login,nome,senha,admin,criadoEm:new Date().toISOString()});
+      const salt = gerarSalt();
+      const senhaHash = await hashSenha(senha, salt);
+      await dbPut('usuarios',{usuario:login,nome,senha:senhaHash,salt,admin,criadoEm:new Date().toISOString()});
       fecharModalUsuario();
       renderUsuariosAdmin();
       // popup de sucesso cadastro
@@ -1545,12 +1624,57 @@ function showToast(msg,tipo=false){
 // =====================================================
 let dbPronto = false;
 
+function mostrarPrimeiroAcesso() {
+  document.getElementById('tela-login').classList.add('hidden');
+  document.getElementById('tela-primeiro-acesso').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('setup-nome').focus(), 100);
+}
+
+async function salvarPrimeiroAdmin() {
+  const nome    = document.getElementById('setup-nome').value.trim();
+  const login   = document.getElementById('setup-login').value.trim().toLowerCase();
+  const senha   = document.getElementById('setup-senha').value;
+  const confirma= document.getElementById('setup-confirma').value;
+  const err     = document.getElementById('setup-err');
+
+  if (!nome)                   { err.textContent='Informe seu nome.';              err.classList.add('show'); return; }
+  if (!login)                  { err.textContent='Informe o login.';               err.classList.add('show'); return; }
+  if (senha.length < 4)        { err.textContent='Senha deve ter ao menos 4 caracteres.'; err.classList.add('show'); return; }
+  if (senha !== confirma)      { err.textContent='As senhas não coincidem.';        err.classList.add('show'); return; }
+
+  try {
+    const salt = gerarSalt();
+    const senhaHash = await hashSenha(senha, salt);
+    await dbPut('usuarios', { usuario:login, nome, senha:senhaHash, salt, admin:true, criadoEm:new Date().toISOString() });
+
+    // Carrega produtos e vendas antes de liberar o login
+    produtos = await dbGetAll('produtos');
+    if (produtos.length === 0) {
+      for (const p of SEED) await dbAdd('produtos', p);
+      produtos = await dbGetAll('produtos');
+    }
+    vendas = await dbByIdx('vendas','data',hoje());
+    vendas.sort((a,b)=>b.id-a.id);
+    dbPronto = true;
+
+    document.getElementById('tela-primeiro-acesso').classList.add('hidden');
+    document.getElementById('tela-login').classList.remove('hidden');
+    document.getElementById('login-user').value = login;
+    document.getElementById('login-pass').focus();
+    showToast('Conta criada! Faça login para continuar.', true);
+  } catch(e) {
+    err.textContent = 'Erro ao criar conta: ' + e.message;
+    err.classList.add('show');
+  }
+}
+
 async function boot(){
   try {
     await initDB();
-    const userExiste = await dbGet('usuarios','roger');
-    if (!userExiste) {
-      await dbPut('usuarios', { usuario:'roger', senha:'2718', nome:'Roger', admin:true });
+    const todosUsuarios = await dbGetAll('usuarios');
+    if (todosUsuarios.length === 0) {
+      mostrarPrimeiroAcesso();
+      return;
     }
     produtos = await dbGetAll('produtos');
     if(produtos.length===0){
