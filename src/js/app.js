@@ -72,7 +72,7 @@ async function hashSenha(senha, salt) {
 // =====================================================
 function initDB() {
   return new Promise((res, rej) => {
-    const req = indexedDB.open('MercadinhoDB_v4', 2);
+    const req = indexedDB.open('MercadinhoDB_v4', 3);
     req.onupgradeneeded = e => {
       const d = e.target.result;
       if (!d.objectStoreNames.contains('usuarios'))
@@ -89,10 +89,32 @@ function initDB() {
         const s = d.createObjectStore('sessoes', { keyPath:'id', autoIncrement:true });
         s.createIndex('data','data',{unique:false});
       }
+      if (!d.objectStoreNames.contains('auditoria')) {
+        const a = d.createObjectStore('auditoria', { keyPath:'id', autoIncrement:true });
+        a.createIndex('data','data',{unique:false});
+        a.createIndex('usuario','usuario',{unique:false});
+      }
     };
     req.onsuccess = e => { db = e.target.result; res(); };
     req.onerror = () => rej(req.error);
   });
+}
+
+// =====================================================
+// AUDITORIA (6.1)
+// =====================================================
+async function registrarAudit(acao, detalhe) {
+  const agora = new Date();
+  try {
+    await dbAdd('auditoria', {
+      data:    agora.toISOString().slice(0,10),
+      hora:    agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}),
+      usuario: usuarioLogado || adminLogado || '—',
+      acao,
+      detalhe: detalhe || '',
+      criadoEm: agora.toISOString(),
+    });
+  } catch(e) { console.error('Erro ao registrar auditoria:', e); }
 }
 
 function dbGet(s,k)    {
@@ -236,6 +258,7 @@ async function fazerLogin() {
     if (senhaCorreta) {
       err.classList.remove('show');
       usuarioLogado = u;
+      await registrarAudit('LOGIN', `Usuário "${u}" fez login`);
       document.getElementById('tela-login').classList.add('hidden');
       await iniciarApp();
     } else {
@@ -252,6 +275,7 @@ async function fazerLogin() {
 
 function logout() {
   pararTimeoutSessao();
+  registrarAudit('LOGOUT', `Usuário "${usuarioLogado}" encerrou a sessão`);
   usuarioLogado=null; openSince=null; carrinho=[];
   document.getElementById('tela-login').classList.remove('hidden');
   document.getElementById('topbar').style.display='none';
@@ -305,6 +329,7 @@ async function abrirNovaSessao() {
   openSince = new Date();
   trocoInicial = 0;
   await dbPut('caixa',{chave:'estado',aberto:true,abertoEm:openSince.toISOString(),trocoInicial:0});
+  await registrarAudit('ABRIR_CAIXA', `Caixa aberto pelo operador "${usuarioLogado}"`);
   const sessao = {
     data: hoje(),
     operador: usuarioLogado,
@@ -369,6 +394,7 @@ async function confirmarFechamento() {
     } catch(e){ handleError(e, 'Erro ao salvar sessão'); }
   }
 
+  await registrarAudit('FECHAR_CAIXA', `Caixa fechado — ${vendas.length} vendas, total ${fmt(totalV)}`);
   await dbPut('caixa',{chave:'estado',aberto:false});
   document.getElementById('modal-fechamento').classList.remove('open');
   document.getElementById('topbar').style.display='none';
@@ -566,6 +592,7 @@ async function confirmarVenda() {
   renderCarrinho();
   renderCaixa();
 
+  await registrarAudit('VENDA', `Venda #${vid} — ${fmt(total)} (${pgtoLabel}) — ${itensStr}`);
   let msg = `Venda #${vid} — ${fmt(total)} (${pgtoLabel})`;
   if(pgtoSelecionado==='dinheiro' && troco>0) msg += ` · Troco: ${fmt(troco)}`;
   showToast(msg, true);
@@ -706,6 +733,7 @@ async function salvarProduto(){
       if(!p){ showToast('Produto não encontrado!','red'); return; }
       Object.assign(p,{nome,barras,categoria,preco,custo,estoque,unidade});
       await dbPut('produtos', p);
+      await registrarAudit('EDITAR_PRODUTO', `Produto "${nome}" (id:${editandoId}) atualizado`);
       fecharModalProduto();
       renderEstoque();
       renderCaixa();
@@ -714,10 +742,10 @@ async function salvarProduto(){
       const obj = {nome,barras,categoria,preco,custo,estoque,unidade,vendidos:0};
       const nid  = await dbAdd('produtos', obj);
       produtos.push({...obj, id:nid});
+      await registrarAudit('CRIAR_PRODUTO', `Produto "${nome}" cadastrado (id:${nid})`);
       fecharModalProduto();
       renderEstoque();
       renderCaixa();
-      // Mostrar popup de sucesso
       document.getElementById('sucesso-msg').textContent =
         '"'+nome+'" foi adicionado ao estoque com sucesso!';
       document.getElementById('modal-sucesso').classList.add('open');
@@ -735,6 +763,7 @@ function deletarProduto(id){
   const p = produtos.find(x=>x.id===id);
   mostrarConfirmar('Excluir produto', `Excluir "${p?.nome || 'este produto'}" do estoque?`, async () => {
     await dbDelete('produtos', id);
+    await registrarAudit('EXCLUIR_PRODUTO', `Produto "${p?.nome}" (id:${id}) excluído`);
     produtos = produtos.filter(x=>x.id!==id);
     renderEstoque(); renderCaixa();
     showToast('Produto removido');
@@ -829,6 +858,7 @@ async function excluirVenda(){
   try {
     await dbDelete('vendas', id);
     vendas = vendas.filter(v=>v.id!==id);
+    await registrarAudit('EXCLUIR_VENDA', `Venda #${String(id).padStart(3,'0')} excluída`);
     document.getElementById('modal-excluir-venda').classList.remove('open');
     await renderVendas();
     showToast('Venda #'+String(id).padStart(3,'0')+' excluída.', false);
@@ -898,7 +928,8 @@ function adminNavTo(page) {
   document.querySelectorAll('.admin-nav').forEach(b=>b.classList.remove('active'));
   document.getElementById('apage-'+page).classList.add('active');
   document.getElementById('anav-'+page).classList.add('active');
-  if(page==='relatorios') renderRelatorios();
+  if(page==='relatorios')  renderRelatorios();
+  if(page==='auditoria')   renderAuditoria();
   if(page==='usuarios')   renderUsuariosAdmin();
 }
 async function renderRelatorios() {
@@ -977,6 +1008,58 @@ async function editarUsuario(login) {
   document.getElementById('usuario-err').classList.remove('show');
   document.getElementById('modal-usuario').classList.add('open');
 }
+// =====================================================
+// AUDITORIA — RENDERIZAÇÃO (6.2)
+// =====================================================
+const AUDIT_BADGES = {
+  LOGIN:           ['#dbeafe','#1d4ed8','Login'],
+  LOGOUT:          ['#f1f5f9','#475569','Logout'],
+  ABRIR_CAIXA:     ['#dcfce7','#15803d','Abrir Caixa'],
+  FECHAR_CAIXA:    ['#fef9c3','#92400e','Fechar Caixa'],
+  VENDA:           ['#dcfce7','#15803d','Venda'],
+  EXCLUIR_VENDA:   ['#fee2e2','#b91c1c','Excluir Venda'],
+  CRIAR_PRODUTO:   ['#dcfce7','#15803d','Novo Produto'],
+  EDITAR_PRODUTO:  ['#fef9c3','#92400e','Editar Produto'],
+  EXCLUIR_PRODUTO: ['#fee2e2','#b91c1c','Excluir Produto'],
+  CRIAR_USUARIO:   ['#ede9fe','#6d28d9','Novo Usuário'],
+  EDITAR_USUARIO:  ['#fef9c3','#92400e','Editar Usuário'],
+  EXCLUIR_USUARIO: ['#fee2e2','#b91c1c','Excluir Usuário'],
+};
+
+async function renderAuditoria() {
+  const filData = document.getElementById('audit-filtro-data')?.value || '';
+  const filUser = (document.getElementById('audit-filtro-user')?.value || '').toLowerCase().trim();
+  let lista;
+  if (filData) {
+    lista = await dbByIdx('auditoria', 'data', filData);
+  } else {
+    lista = await dbGetAll('auditoria');
+  }
+  if (filUser) lista = lista.filter(r => r.usuario.toLowerCase().includes(filUser));
+  lista.sort((a,b) => b.id - a.id);
+
+  const tbody = document.getElementById('audit-tbody');
+  tbody.innerHTML = '';
+  if (lista.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:28px">Nenhum registro encontrado.</td></tr>';
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  lista.forEach(r => {
+    const [bg, color, label] = AUDIT_BADGES[r.acao] || ['#f1f5f9','#475569', r.acao];
+    const badge = `<span style="background:${bg};color:${color};padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700">${label}</span>`;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td style="color:var(--muted);font-size:12px">${r.data} ${r.hora}</td>
+      <td><strong>${r.usuario}</strong></td>
+      <td>${badge}</td>
+      <td style="font-size:12px;color:var(--muted)">${r.detalhe}</td>`;
+    frag.appendChild(tr);
+  });
+  tbody.appendChild(frag);
+  document.getElementById('audit-total').textContent = lista.length + ' registro' + (lista.length !== 1 ? 's' : '');
+}
+
 function fecharModalUsuario() { document.getElementById('modal-usuario').classList.remove('open'); }
 async function salvarUsuario() {
   const login=document.getElementById('u-login').value.trim().toLowerCase();
@@ -995,9 +1078,9 @@ async function salvarUsuario() {
         u.senha = await hashSenha(senha, u.salt);
       }
       await dbPut('usuarios',u);
+      await registrarAudit('EDITAR_USUARIO', `Usuário "${login}" editado por "${adminLogado}"`);
       fecharModalUsuario();
       renderUsuariosAdmin();
-      // popup de sucesso edição
       document.getElementById('sucesso-usuario-titulo').textContent='Usuário Atualizado!';
       document.getElementById('sucesso-usuario-msg').textContent=
         'Os dados do usuário "'+login+'" foram atualizados com sucesso.';
@@ -1008,9 +1091,9 @@ async function salvarUsuario() {
       const salt = gerarSalt();
       const senhaHash = await hashSenha(senha, salt);
       await dbPut('usuarios',{usuario:login,nome,senha:senhaHash,salt,admin,criadoEm:new Date().toISOString()});
+      await registrarAudit('CRIAR_USUARIO', `Usuário "${login}" criado por "${adminLogado}" — perfil: ${admin?'Admin':'Operador'}`);
       fecharModalUsuario();
       renderUsuariosAdmin();
-      // popup de sucesso cadastro
       const perfil = admin ? 'Administrador' : 'Operador de Caixa';
       document.getElementById('sucesso-usuario-titulo').textContent='Usuário Cadastrado!';
       document.getElementById('sucesso-usuario-msg').textContent=
@@ -1023,6 +1106,7 @@ function deletarUsuario(login) {
   if(login===adminLogado){ showToast('Não pode excluir o usuário logado.','red'); return; }
   mostrarConfirmar('Excluir usuário', `Excluir o usuário "${login}"? Esta ação não pode ser desfeita.`, async () => {
     await dbDelete('usuarios', login);
+    await registrarAudit('EXCLUIR_USUARIO', `Usuário "${login}" excluído por "${adminLogado}"`);
     renderUsuariosAdmin();
     showToast('Usuário removido.');
   });
