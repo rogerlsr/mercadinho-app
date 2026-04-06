@@ -289,6 +289,22 @@ body{font-family:'Nunito',sans-serif;background:var(--bg);color:var(--text);heig
   </div>
 </div>
 
+<!-- MODAL RECOVERY DE SESSÃO -->
+<div class="modal-overlay" id="modal-recovery">
+  <div class="modal" style="width:420px;text-align:center;padding:36px 32px">
+    <div style="width:68px;height:68px;background:#fef9c3;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 18px">
+      <svg width="32" height="32" fill="none" stroke="#92400e" stroke-width="2.5" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    </div>
+    <h3 style="font-size:18px;margin-bottom:8px">Sessão não finalizada</h3>
+    <p style="font-size:13px;color:var(--muted);font-weight:600;margin-bottom:6px" id="recovery-info"></p>
+    <p style="font-size:13px;color:var(--muted);font-weight:600;margin-bottom:24px">O que deseja fazer?</p>
+    <div style="display:flex;gap:10px">
+      <button class="btn-cancel" style="flex:1" onclick="descartarSessaoPendente()">Descartar e abrir novo caixa</button>
+      <button class="btn-save" style="flex:1" onclick="recuperarSessaoPendente()">Continuar sessão</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL FECHAR PROGRAMA -->
 <div class="modal-overlay" id="modal-fechar-programa">
   <div class="modal" style="width:400px;text-align:center;padding:36px 32px">
@@ -932,13 +948,50 @@ function logout() {
 }
 
 let sessaoAtualId = null;
+let sessaoPendente = null;
 
 async function iniciarApp() {
   document.getElementById('topbar-user').textContent='👤 '+usuarioLogado;
+
+  // 2.1 — Verificar sessão incompleta do mesmo operador
+  const todasSessoes = await dbGetAll('sessoes');
+  sessaoPendente = todasSessoes.find(s => s.status === 'aberta' && s.operador === usuarioLogado) || null;
+
+  if (sessaoPendente) {
+    const abertura = new Date(sessaoPendente.abertoEm).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    document.getElementById('recovery-info').textContent =
+      `Caixa aberto em ${abertura} pelo operador "${usuarioLogado}" não foi fechado corretamente.`;
+    document.getElementById('modal-recovery').classList.add('open');
+    return;
+  }
+
+  await abrirNovaSessao();
+}
+
+async function recuperarSessaoPendente() {
+  document.getElementById('modal-recovery').classList.remove('open');
+  sessaoAtualId = sessaoPendente.id;
+  openSince = new Date(sessaoPendente.abertoEm);
+  const estado = await dbGet('caixa', 'estado');
+  trocoInicial = estado?.trocoInicial || 0;
+  sessaoPendente = null;
+  mostrarApp();
+}
+
+async function descartarSessaoPendente() {
+  document.getElementById('modal-recovery').classList.remove('open');
+  try {
+    const s = await dbGet('sessoes', sessaoPendente.id);
+    if (s) { s.status = 'descartada'; await dbPut('sessoes', s); }
+  } catch(e) { console.error('Erro ao descartar sessão:', e); }
+  sessaoPendente = null;
+  await abrirNovaSessao();
+}
+
+async function abrirNovaSessao() {
   openSince = new Date();
   trocoInicial = 0;
   await dbPut('caixa',{chave:'estado',aberto:true,abertoEm:openSince.toISOString(),trocoInicial:0});
-  // Registrar abertura de sessão
   const sessao = {
     data: hoje(),
     operador: usuarioLogado,
@@ -1024,7 +1077,12 @@ function updateClock() {
   document.getElementById('clock-display').textContent=
     String(Math.floor(d/3600)).padStart(2,'0')+':'+String(Math.floor((d%3600)/60)).padStart(2,'0');
 }
-setInterval(updateClock,1000);
+let clockTimer = null;
+function iniciarClock() {
+  if (clockTimer) clearInterval(clockTimer);
+  clockTimer = setInterval(updateClock, 1000);
+}
+iniciarClock();
 
 function navTo(page) {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -1291,7 +1349,7 @@ async function salvarProduto(){
 
   const preco   = parseMoeda(precoRaw);
   const custo   = parseMoeda(custoRaw) || 0;
-  const estoque = parseMoeda(estoqueRaw) || 0;
+  const estoque = Math.max(0, parseInt(estoqueRaw) || 0);
 
   if(!nome)                  { showToast('Informe o nome do produto!','red'); return; }
   if(isNaN(preco)||preco<=0) { showToast('Preço de venda inválido: "'+precoRaw+'"','red'); return; }
@@ -1381,8 +1439,13 @@ async function renderVendas(){
         <span class="venda-hora">${v.hora}</span>
         <span class="venda-items">${v.itensStr}</span>
         ${v.pagamento?`<span style="font-size:11px;font-weight:700;background:var(--green-light);color:var(--green-dark);padding:3px 8px;border-radius:20px;white-space:nowrap">${v.pagamento}</span>`:''}
-        <span class="venda-total">${fmt(v.total)}</span>
-        <button class="btn-del-venda" onclick="confirmarExcluirVenda(${v.id},'${v.hora}','${v.itensStr.replace(/'/g,"\\'")}','${fmt(v.total)}')" title="Excluir venda">🗑️</button>`;
+        <span class="venda-total">${fmt(v.total)}</span>`;
+      const btnDel = document.createElement('button');
+      btnDel.className = 'btn-del-venda';
+      btnDel.title = 'Excluir venda';
+      btnDel.textContent = '🗑️';
+      btnDel.addEventListener('click', () => confirmarExcluirVenda(v.id, v.hora, v.itensStr, fmt(v.total)));
+      d.appendChild(btnDel);
       el.appendChild(d);
     });
   }
@@ -1437,7 +1500,22 @@ async function loginAdmin() {
   if(!dbPronto){ err.textContent='Sistema iniciando...'; err.classList.add('show'); return; }
   try {
     const reg = await dbGet('usuarios', u);
-    if(reg && reg.senha===p && reg.admin===true) {
+    let senhaAdminOk = false;
+    if (reg && reg.admin === true) {
+      if (reg.salt) {
+        const hash = await hashSenha(p, reg.salt);
+        senhaAdminOk = hash === reg.senha;
+      } else {
+        senhaAdminOk = reg.senha === p;
+        if (senhaAdminOk) {
+          const salt = gerarSalt();
+          reg.senha = await hashSenha(p, salt);
+          reg.salt = salt;
+          await dbPut('usuarios', reg);
+        }
+      }
+    }
+    if (senhaAdminOk) {
       adminLogado=u; err.classList.remove('show');
       fecharLoginAdmin();
       document.getElementById('tela-login').classList.add('hidden');
@@ -1690,6 +1768,17 @@ async function boot(){
   }
 }
 
+// 2.2 — Proteção contra múltiplas abas/janelas
+const _bc = new BroadcastChannel('mercadinho_instancia');
+_bc.onmessage = (e) => {
+  if (e.data === 'ping') {
+    _bc.postMessage('pong');
+  } else if (e.data === 'pong') {
+    showToast('Atenção: o sistema já está aberto em outra janela! Dados podem ficar inconsistentes.', 'red');
+  }
+};
+_bc.postMessage('ping');
+
 boot();
 
 // Fechar modal clicando fora
@@ -1697,6 +1786,7 @@ document.getElementById('modal-fechamento').addEventListener('click',function(e)
 document.getElementById('modal-venda').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
 document.getElementById('modal-excluir-venda').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
 document.getElementById('modal-fechar-programa').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
+document.getElementById('modal-recovery').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
 document.getElementById('modal-sucesso').addEventListener('click',function(e){if(e.target===this)fecharSucesso();});
 document.getElementById('modal-duplicado').addEventListener('click',function(e){if(e.target===this)this.classList.remove('open');});
 </script>
