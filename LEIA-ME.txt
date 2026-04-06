@@ -1,0 +1,55 @@
+╔══════════════════════════════════════════════════════════╗
+║         MERCADINHO - Sistema de Caixa                    ║
+║         Como gerar o executável (.exe)                   ║
+╚══════════════════════════════════════════════════════════╝
+
+PRÉ-REQUISITO: Node.js instalado
+──────────────────────────────────
+1. Acesse: https://nodejs.org
+2. Baixe a versão LTS (botão verde)
+3. Instale normalmente (Next > Next > Finish)
+4. Reinicie o computador
+
+
+GERAR O EXECUTÁVEL:
+──────────────────────────────────
+Opção fácil:
+  Dê dois cliques no arquivo: GERAR_EXE.bat
+  Aguarde (pode demorar 3-5 minutos na primeira vez)
+
+Opção manual (Prompt de Comando):
+  1. Abra o CMD nesta pasta
+  2. Digite: npm install
+  3. Aguarde instalar
+  4. Digite: npm run build
+  5. Aguarde gerar
+
+
+RESULTADO:
+──────────────────────────────────
+O instalador será criado em:
+  📁 dist\Mercadinho Setup 1.0.0.exe
+
+Execute esse instalador no Windows.
+Ele vai instalar o programa e criar atalho na área de trabalho.
+
+
+DADOS DO SISTEMA:
+──────────────────────────────────
+Login:  roger
+Senha:  2718
+
+Os dados ficam salvos no computador onde o programa for instalado.
+(Banco de dados: IndexedDB no perfil do usuário Windows)
+
+
+ESTRUTURA DOS ARQUIVOS:
+──────────────────────────────────
+mercadinho-app/
+├── main.js          ← Processo principal Electron
+├── package.json     ← Configurações do projeto
+├── icon.ico         ← Ícone do programa (opcional)
+├── GERAR_EXE.bat    ← Script para gerar o .exe
+├── LEIA-ME.txt      ← Este arquivo
+└── src/
+    └── index.html   ← O sistema completo
