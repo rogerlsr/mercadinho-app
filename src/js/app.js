@@ -14,9 +14,13 @@ let clockTimer = null, toastTimer;
 // CONSTANTES
 // =====================================================
 const PAGAMENTOS = { dinheiro:'Dinheiro', pix:'PIX', debito:'Débito', credito:'Crédito', fiado:'Fiado' };
+const VENDAS_POR_PAGINA = 50;
 
 const hoje = () => new Date().toISOString().slice(0,10);
 const fmt  = v => 'R$ '+Number(v).toFixed(2).replace('.',',');
+
+let vendaOffset = 0;
+let totalVendasSemFiltro = 0;
 
 // =====================================================
 // HELPERS
@@ -36,6 +40,11 @@ function handleError(e, msg, displayEl) {
   } else {
     showToast(msg, 'red');
   }
+}
+
+function debounce(fn, delay) {
+  let timer;
+  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), delay); };
 }
 
 // =====================================================
@@ -145,6 +154,37 @@ function dbByIdx(s,i,v) {
       req.onsuccess = () => res(req.result);
       req.onerror   = () => rej(new Error('dbByIdx falhou: '+req.error));
     } catch(e){ rej(e); }
+  });
+}
+
+// Cursor reverso: retorna até `limit` registros a partir do `offset` mais recente
+function dbGetPage(storeName, limit, offset) {
+  return new Promise((res, rej) => {
+    try {
+      const tx = db.transaction(storeName, 'readonly');
+      const results = [];
+      let skipped = 0;
+      const req = tx.objectStore(storeName).openCursor(null, 'prev');
+      req.onsuccess = e => {
+        const cursor = e.target.result;
+        if (!cursor || results.length >= limit) { res(results); return; }
+        if (skipped < offset) { skipped++; cursor.continue(); return; }
+        results.push(cursor.value);
+        cursor.continue();
+      };
+      req.onerror = () => rej(new Error('dbGetPage falhou'));
+    } catch(e) { rej(e); }
+  });
+}
+
+function dbCount(storeName) {
+  return new Promise((res, rej) => {
+    try {
+      const tx = db.transaction(storeName, 'readonly');
+      const req = tx.objectStore(storeName).count();
+      req.onsuccess = () => res(req.result);
+      req.onerror   = () => rej(new Error('dbCount falhou'));
+    } catch(e) { rej(e); }
   });
 }
 
@@ -352,6 +392,9 @@ function iniciarClock() {
 }
 iniciarClock();
 
+const renderCaixaDebounced   = debounce(renderCaixa, 300);
+const renderEstoqueDebounced = debounce(renderEstoque, 300);
+
 function navTo(page) {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
@@ -378,6 +421,7 @@ function renderCaixa() {
     grid.innerHTML='<div style="color:var(--muted);font-size:14px;font-weight:600;padding:20px 0;grid-column:1/-1">Nenhum produto encontrado.</div>';
     return;
   }
+  const frag = document.createDocumentFragment();
   lista.forEach((p,i)=>{
     const card=document.createElement('div');
     card.className='produto-card'+(p.estoque<=0?' sem-estoque':'');
@@ -391,8 +435,9 @@ function renderCaixa() {
         <span class="p-estoque">${p.estoque} ${un}</span>
         <button class="btn-add" onclick="addCarrinho(${p.id})">+</button>
       </div>`;
-    grid.appendChild(card);
+    frag.appendChild(card);
   });
+  grid.appendChild(frag);
 }
 
 // =====================================================
@@ -428,6 +473,7 @@ function renderCarrinho(){
   const el=document.getElementById('carr-items');
   el.innerHTML='';
   let total=0;
+  const frag=document.createDocumentFragment();
   carrinho.forEach(item=>{
     total+=item.preco*item.qty;
     const d=document.createElement('div');
@@ -440,8 +486,9 @@ function renderCarrinho(){
         <button class="btn-qty" onclick="changeQty(${item.id},1)">+</button>
       </div>
       <div class="ci-preco">${fmt(item.preco*item.qty)}</div>`;
-    el.appendChild(d);
+    frag.appendChild(d);
   });
+  el.appendChild(frag);
   document.getElementById('total-value').textContent=fmt(total);
 }
 
@@ -530,6 +577,11 @@ function renderEstoque(){
   const lista=q?produtos.filter(p=>p.nome.toLowerCase().includes(q)||(p.barras||'').includes(q)):[...produtos];
   const tbody=document.getElementById('estoque-tbody');
   tbody.innerHTML='';
+  if(lista.length===0){
+    tbody.innerHTML='<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:28px">Nenhum produto encontrado.</td></tr>';
+    return;
+  }
+  const frag = document.createDocumentFragment();
   lista.forEach(p=>{
     const un=p.unidade||'un';
     const badge=p.estoque<=0?'<span class="badge-zero">Zerado</span>':p.estoque<=10?'<span class="badge-baixo">Baixo</span>':'<span class="badge-ok">Normal</span>';
@@ -549,10 +601,9 @@ function renderEstoque(){
         <button class="btn-edit" onclick="abrirEditar(${p.id})">✏️</button>
         <button class="btn-del"  onclick="deletarProduto(${p.id})">🗑️</button>
       </td>`;
-    tbody.appendChild(tr);
+    frag.appendChild(tr);
   });
-  if(lista.length===0)
-    tbody.innerHTML='<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:28px">Nenhum produto encontrado.</td></tr>';
+  tbody.appendChild(frag);
 }
 
 // =====================================================
@@ -689,37 +740,75 @@ async function deletarProduto(id){
 // =====================================================
 // VENDAS
 // =====================================================
-async function renderVendas(){
-  const data=document.getElementById('filtro-data').value;
-  let lista=data?await dbByIdx('vendas','data',data):await dbGetAll('vendas');
-  lista.sort((a,b)=>b.id-a.id);
-  const el=document.getElementById('vendas-list');
-  if(lista.length===0){
-    el.innerHTML='<div style="color:var(--muted);font-size:14px;font-weight:600;padding:16px 0">Nenhuma venda encontrada.</div>';
-  } else {
-    el.innerHTML='';
-    lista.forEach(v=>{
-      const d=document.createElement('div');
-      d.className='venda-row';
-      d.innerHTML=`
-        <span class="venda-num">#${String(v.id).padStart(3,'0')}</span>
-        <span class="venda-hora">${v.hora}</span>
-        <span class="venda-items">${v.itensStr}</span>
-        ${v.pagamento?`<span style="font-size:11px;font-weight:700;background:var(--green-light);color:var(--green-dark);padding:3px 8px;border-radius:20px;white-space:nowrap">${v.pagamento}</span>`:''}
-        <span class="venda-total">${fmt(v.total)}</span>`;
-      const btnDel = document.createElement('button');
-      btnDel.className = 'btn-del-venda';
-      btnDel.title = 'Excluir venda';
-      btnDel.textContent = '🗑️';
-      btnDel.addEventListener('click', () => confirmarExcluirVenda(v.id, v.hora, v.itensStr, fmt(v.total)));
-      d.appendChild(btnDel);
-      el.appendChild(d);
-    });
+function _criarLinhaVenda(v) {
+  const d = document.createElement('div');
+  d.className = 'venda-row';
+  d.innerHTML = `
+    <span class="venda-num">#${String(v.id).padStart(3,'0')}</span>
+    <span class="venda-hora">${v.hora}</span>
+    <span class="venda-items">${v.itensStr}</span>
+    ${v.pagamento?`<span style="font-size:11px;font-weight:700;background:var(--green-light);color:var(--green-dark);padding:3px 8px;border-radius:20px;white-space:nowrap">${v.pagamento}</span>`:''}
+    <span class="venda-total">${fmt(v.total)}</span>`;
+  const btnDel = document.createElement('button');
+  btnDel.className = 'btn-del-venda';
+  btnDel.title = 'Excluir venda';
+  btnDel.textContent = '🗑️';
+  btnDel.addEventListener('click', () => confirmarExcluirVenda(v.id, v.hora, v.itensStr, fmt(v.total)));
+  d.appendChild(btnDel);
+  return d;
+}
+
+async function renderVendas(append = false) {
+  const data = document.getElementById('filtro-data').value;
+  const el   = document.getElementById('vendas-list');
+  const btnMais = document.getElementById('btn-mais-vendas');
+
+  if (!append) {
+    vendaOffset = 0;
+    el.innerHTML = '';
   }
-  const tot=lista.reduce((s,v)=>s+v.total,0);
-  document.getElementById('stat-total').textContent=fmt(tot);
-  document.getElementById('stat-num').textContent=lista.length;
-  document.getElementById('stat-ticket').textContent=lista.length?fmt(tot/lista.length):'R$ 0,00';
+
+  let lista, temMais = false;
+
+  if (data) {
+    // Filtro por data: carrega tudo do dia (pequeno volume)
+    if (!append) {
+      lista = await dbByIdx('vendas', 'data', data);
+      lista.sort((a,b) => b.id - a.id);
+      const tot = lista.reduce((s,v) => s+v.total, 0);
+      document.getElementById('stat-total').textContent  = fmt(tot);
+      document.getElementById('stat-num').textContent    = lista.length;
+      document.getElementById('stat-ticket').textContent = lista.length ? fmt(tot/lista.length) : 'R$ 0,00';
+    } else {
+      lista = [];
+    }
+    temMais = false;
+  } else {
+    // Sem filtro: paginação cursor (mais recente primeiro)
+    lista = await dbGetPage('vendas', VENDAS_POR_PAGINA, vendaOffset);
+    vendaOffset += lista.length;
+
+    if (!append) {
+      totalVendasSemFiltro = await dbCount('vendas');
+      // Stats: carrega totais separados para não bloquear o cursor
+      const todasHoje = await dbByIdx('vendas', 'data', hoje());
+      const totH = todasHoje.reduce((s,v) => s+v.total, 0);
+      document.getElementById('stat-total').textContent  = fmt(totH);
+      document.getElementById('stat-num').textContent    = todasHoje.length;
+      document.getElementById('stat-ticket').textContent = todasHoje.length ? fmt(totH/todasHoje.length) : 'R$ 0,00';
+    }
+    temMais = vendaOffset < totalVendasSemFiltro;
+  }
+
+  if (lista.length === 0 && !append) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:14px;font-weight:600;padding:16px 0">Nenhuma venda encontrada.</div>';
+  } else {
+    const frag = document.createDocumentFragment();
+    lista.forEach(v => frag.appendChild(_criarLinhaVenda(v)));
+    el.appendChild(frag);
+  }
+
+  if (btnMais) btnMais.style.display = temMais ? 'block' : 'none';
 }
 
 function confirmarExcluirVenda(id, hora, itens, total){

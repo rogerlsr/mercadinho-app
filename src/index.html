@@ -280,7 +280,7 @@
         </div>
         <div class="search-box">
           <svg width="15" height="15" fill="none" stroke="#9ca3af" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          <input type="text" id="search-input" placeholder="Buscar nome ou código de barras..." oninput="renderCaixa()">
+          <input type="text" id="search-input" placeholder="Buscar nome ou código de barras..." oninput="renderCaixaDebounced()">
         </div>
         <div class="produtos-grid" id="produtos-grid"></div>
       </div>
@@ -315,7 +315,7 @@
           <span class="area-title">Estoque</span>
           <div class="estoque-search">
             <svg width="14" height="14" fill="none" stroke="#9ca3af" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            <input type="text" id="estoque-busca" placeholder="Buscar produto ou código..." oninput="renderEstoque()">
+            <input type="text" id="estoque-busca" placeholder="Buscar produto ou código..." oninput="renderEstoqueDebounced()">
           </div>
         </div>
         <button class="btn-novo" onclick="abrirModalProduto()">
@@ -359,6 +359,7 @@
       <div class="vendas-list" id="vendas-list">
         <div style="color:var(--muted);font-size:14px;font-weight:600;padding:16px 0">Nenhuma venda encontrada.</div>
       </div>
+      <button id="btn-mais-vendas" onclick="renderVendas(true)" style="display:none;width:100%;margin-top:14px;padding:11px;background:var(--white);border:1.5px solid var(--border);border-radius:12px;font-family:inherit;font-size:14px;font-weight:700;color:var(--muted);cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='var(--green)';this.style.color='var(--green-dark)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">Carregar mais vendas</button>
     </div>
   </div>
 </div>
