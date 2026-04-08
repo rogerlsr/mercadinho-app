@@ -526,11 +526,13 @@ function buscarPorEnter(e) {
   const q = (document.getElementById('search-input')?.value || '').trim();
   if (!q) return;
 
+  // Sempre limpa o campo ao dar Enter (pronto para o próximo código)
+  document.getElementById('search-input').value = '';
+
   // Verifica match exato de código de barras (prioridade)
   const exato = produtos.find(p => (p.barras || '') === q);
   if (exato) {
     addCarrinho(exato.id);
-    document.getElementById('search-input').value = '';
     renderCaixa();
     return;
   }
@@ -540,12 +542,10 @@ function buscarPorEnter(e) {
   const lista = produtos.filter(p => p.nome.toLowerCase().includes(qLower) || (p.barras || '').includes(q));
   if (lista.length === 1) {
     addCarrinho(lista[0].id);
-    document.getElementById('search-input').value = '';
-    renderCaixa();
   } else if (lista.length === 0) {
     showToast('Produto não encontrado', 'red');
   }
-  // Se múltiplos resultados: mantém a lista visível para o operador escolher
+  renderCaixa();
 }
 
 // =====================================================
