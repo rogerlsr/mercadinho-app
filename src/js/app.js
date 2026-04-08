@@ -21,6 +21,7 @@ const fmt  = v => 'R$ '+Number(v).toFixed(2).replace('.',',');
 
 let vendaOffset = 0;
 let totalVendasSemFiltro = 0;
+let avulsoCounter = 0;
 
 // =====================================================
 // HELPERS
@@ -521,6 +522,71 @@ function renderCarrinho(){
 }
 
 function limparCarrinho(){carrinho=[];renderCarrinho();}
+
+// Tecla Enter no campo de busca (maquininha/leitor de código de barras)
+function buscarPorEnter(e) {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const q = (document.getElementById('search-input')?.value || '').trim();
+  if (!q) return;
+
+  // Verifica match exato de código de barras (prioridade)
+  const exato = produtos.find(p => (p.barras || '') === q);
+  if (exato) {
+    addCarrinho(exato.id);
+    document.getElementById('search-input').value = '';
+    renderCaixa();
+    return;
+  }
+
+  // Se só tem um resultado, adiciona direto
+  const qLower = q.toLowerCase();
+  const lista = produtos.filter(p => p.nome.toLowerCase().includes(qLower) || (p.barras || '').includes(q));
+  if (lista.length === 1) {
+    addCarrinho(lista[0].id);
+    document.getElementById('search-input').value = '';
+    renderCaixa();
+  } else if (lista.length === 0) {
+    showToast('Produto não encontrado', 'red');
+  }
+  // Se múltiplos resultados: mantém a lista visível para o operador escolher
+}
+
+// =====================================================
+// VALOR AVULSO (sem código de barras)
+// =====================================================
+function abrirAvulso() {
+  document.getElementById('av-desc').value = '';
+  document.getElementById('av-preco').value = '';
+  const err = document.getElementById('av-err');
+  err.textContent = '';
+  err.classList.remove('show');
+  document.getElementById('modal-avulso').classList.add('open');
+  setTimeout(() => document.getElementById('av-preco').focus(), 80);
+}
+
+function fecharAvulso() {
+  document.getElementById('modal-avulso').classList.remove('open');
+}
+
+function confirmarAvulso() {
+  const desc = document.getElementById('av-desc').value.trim() || 'Item Avulso';
+  const precoStr = document.getElementById('av-preco').value.replace(',', '.');
+  const preco = parseFloat(precoStr);
+  const err = document.getElementById('av-err');
+
+  if (isNaN(preco) || preco <= 0) {
+    err.textContent = 'Informe um valor maior que zero.';
+    err.classList.add('show');
+    return;
+  }
+
+  avulsoCounter--;
+  carrinho.push({ id: avulsoCounter, nome: desc, preco, unidade: 'un', qty: 1 });
+  renderCarrinho();
+  showToast(desc + ' adicionado', true);
+  fecharAvulso();
+}
 
 // =====================================================
 // MODAL PAGAMENTO
@@ -1293,6 +1359,7 @@ boot();
   ['modal-confirmar',     'fecharConfirmar'],
   ['modal-sucesso',       'fecharSucesso'],
   ['modal-duplicado',     null],
+  ['modal-avulso',        'fecharAvulso'],
 ].forEach(([id, fn]) => {
   document.getElementById(id)?.addEventListener('click', function(e) {
     if (e.target !== this) return;

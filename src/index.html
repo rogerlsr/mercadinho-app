@@ -325,11 +325,17 @@
       <div class="produtos-area">
         <div class="area-header">
           <span class="area-title">Caixa</span>
-          <span class="area-badge">🏆 Top 10 mais vendidos</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="area-badge">🏆 Top 10 mais vendidos</span>
+            <button class="btn-novo" onclick="abrirAvulso()" style="font-size:12px;padding:6px 13px">
+              <svg width="14" height="14" fill="none" stroke="white" stroke-width="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Valor Avulso
+            </button>
+          </div>
         </div>
         <div class="search-box">
           <svg width="15" height="15" fill="none" stroke="#9ca3af" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          <input type="text" id="search-input" placeholder="Buscar nome ou código de barras..." oninput="renderCaixaDebounced()">
+          <input type="text" id="search-input" placeholder="Buscar nome ou código de barras..." oninput="renderCaixaDebounced()" onkeydown="buscarPorEnter(event)">
         </div>
         <div class="produtos-grid" id="produtos-grid"></div>
       </div>
@@ -409,6 +415,27 @@
         <div style="color:var(--muted);font-size:14px;font-weight:600;padding:16px 0">Nenhuma venda encontrada.</div>
       </div>
       <button id="btn-mais-vendas" onclick="renderVendas(true)" style="display:none;width:100%;margin-top:14px;padding:11px;background:var(--white);border:1.5px solid var(--border);border-radius:12px;font-family:inherit;font-size:14px;font-weight:700;color:var(--muted);cursor:pointer;transition:all .15s" onmouseover="this.style.borderColor='var(--green)';this.style.color='var(--green-dark)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">Carregar mais vendas</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL VALOR AVULSO -->
+<div class="modal-overlay" id="modal-avulso">
+  <div class="modal" style="width:380px">
+    <h3>Valor Avulso</h3>
+    <p style="font-size:13px;color:var(--muted);font-weight:600;margin-bottom:18px">Adicione um item sem código de barras ao carrinho.</p>
+    <div class="fg">
+      <label>Descrição (opcional)</label>
+      <input type="text" id="av-desc" placeholder="Ex: Pão, Serviço, Ajuste..." autocomplete="off" onkeydown="if(event.key==='Enter')document.getElementById('av-preco').focus()">
+    </div>
+    <div class="fg">
+      <label>Valor (R$) <span class="req">*</span></label>
+      <input type="text" inputmode="decimal" id="av-preco" placeholder="0,00" autocomplete="off" onkeydown="if(event.key==='Enter')confirmarAvulso()">
+    </div>
+    <div class="login-err" id="av-err"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="fecharAvulso()">Cancelar</button>
+      <button class="btn-save" onclick="confirmarAvulso()">Adicionar ao Carrinho</button>
     </div>
   </div>
 </div>
