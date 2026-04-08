@@ -419,6 +419,28 @@
   </div>
 </div>
 
+<!-- MODAL PESO KG -->
+<div class="modal-overlay" id="modal-kg">
+  <div class="modal" style="width:340px;text-align:center">
+    <h3 id="kg-titulo">Lançar Quantidade</h3>
+    <p style="font-size:13px;color:var(--muted);font-weight:600;margin-bottom:6px">
+      Digite o peso ou use o formato <strong>qtd*peso</strong>
+    </p>
+    <p style="font-size:12px;color:var(--muted);font-weight:600;margin-bottom:18px">
+      Ex: <code>2,500</code> → 2,5 kg &nbsp;|&nbsp; <code>5*2,500</code> → 12,5 kg
+    </p>
+    <div class="fg" style="text-align:left">
+      <label>Quantidade (kg)</label>
+      <input type="text" inputmode="decimal" id="kg-input" placeholder="Ex: 2,500 ou 5*2,500" autocomplete="off" onkeydown="if(event.key==='Enter')confirmarAddKg()">
+    </div>
+    <div class="login-err" id="kg-err"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="fecharModalKg()">Cancelar</button>
+      <button class="btn-save" onclick="confirmarAddKg()">Adicionar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL VALOR AVULSO -->
 <div class="modal-overlay" id="modal-avulso">
   <div class="modal" style="width:380px">

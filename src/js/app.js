@@ -22,6 +22,7 @@ const fmt  = v => 'R$ '+Number(v).toFixed(2).replace('.',',');
 let vendaOffset = 0;
 let totalVendasSemFiltro = 0;
 let avulsoCounter = 0;
+let kgProdutoId = null;
 
 // =====================================================
 // HELPERS
@@ -471,16 +472,70 @@ function renderCaixa() {
 function addCarrinho(id){
   const p=produtos.find(x=>x.id===id);
   if(!p) return;
-  if(p.unidade!=='kg'&&p.estoque<=0) return;
+  if(p.unidade==='kg'){ abrirModalKg(id); return; }
+  if(p.estoque<=0) return;
   const item=carrinho.find(x=>x.id===id);
   if(item){
     if(item.qty>=p.estoque){showToast('Estoque insuficiente!','red');return;}
     item.qty++;
   } else {
-    carrinho.push({id,nome:p.nome,preco:p.preco,unidade:p.unidade||'un',qty:1});
+    carrinho.push({id,nome:p.nome,preco:p.preco,unidade:'un',qty:1});
   }
   renderCarrinho();
   showToast(p.nome+' adicionado',true);
+}
+
+// =====================================================
+// MODAL PESO KG
+// =====================================================
+function abrirModalKg(id) {
+  kgProdutoId = id;
+  const p = produtos.find(x => x.id === id);
+  document.getElementById('kg-titulo').textContent = p ? p.nome : 'Lançar Peso';
+  document.getElementById('kg-input').value = '';
+  const err = document.getElementById('kg-err');
+  err.textContent = ''; err.classList.remove('show');
+  document.getElementById('modal-kg').classList.add('open');
+  setTimeout(() => document.getElementById('kg-input').focus(), 80);
+}
+
+function fecharModalKg() {
+  document.getElementById('modal-kg').classList.remove('open');
+  kgProdutoId = null;
+}
+
+function parseKgFormula(str) {
+  str = str.trim();
+  if (str.includes('*')) {
+    const parts = str.split('*');
+    const a = parseFloat(parts[0].replace(',', '.'));
+    const b = parseFloat(parts[1].replace(',', '.'));
+    if (!isNaN(a) && !isNaN(b) && a > 0 && b > 0) return +(a * b).toFixed(3);
+  }
+  const v = parseFloat(str.replace(',', '.'));
+  return isNaN(v) ? NaN : +v.toFixed(3);
+}
+
+function confirmarAddKg() {
+  const raw = document.getElementById('kg-input').value;
+  const peso = parseKgFormula(raw);
+  const err = document.getElementById('kg-err');
+  if (isNaN(peso) || peso <= 0) {
+    err.textContent = 'Informe um peso válido. Ex: 2,500 ou 5*2,500';
+    err.classList.add('show');
+    return;
+  }
+  const p = produtos.find(x => x.id === kgProdutoId);
+  if (!p) { fecharModalKg(); return; }
+  const item = carrinho.find(x => x.id === kgProdutoId);
+  if (item) {
+    item.qty = +(item.qty + peso).toFixed(3);
+  } else {
+    carrinho.push({ id: p.id, nome: p.nome, preco: p.preco, unidade: 'kg', qty: peso });
+  }
+  renderCarrinho();
+  showToast(p.nome + ' — ' + String(peso).replace('.', ',') + ' kg', true);
+  fecharModalKg();
 }
 
 function changeQty(id,delta){
@@ -504,13 +559,17 @@ function renderCarrinho(){
     total+=item.preco*item.qty;
     const d=document.createElement('div');
     d.className='carrinho-item';
+    const isKg = item.unidade === 'kg';
+    const ctrl = isKg
+      ? `<button class="btn-qty" onclick="removeCarrinho(${item.id})">−</button>
+         <span class="ci-qty">${String(item.qty).replace('.',',')} kg</span>
+         <button class="btn-qty" onclick="abrirModalKg(${item.id})">+</button>`
+      : `<button class="btn-qty" onclick="changeQty(${item.id},-1)">−</button>
+         <span class="ci-qty">${item.qty}</span>
+         <button class="btn-qty" onclick="changeQty(${item.id},1)">+</button>`;
     d.innerHTML=`
       <div class="ci-nome">${item.nome}</div>
-      <div class="ci-ctrl">
-        <button class="btn-qty" onclick="changeQty(${item.id},-1)">−</button>
-        <span class="ci-qty">${item.qty}</span>
-        <button class="btn-qty" onclick="changeQty(${item.id},1)">+</button>
-      </div>
+      <div class="ci-ctrl">${ctrl}</div>
       <div class="ci-preco">${fmt(item.preco*item.qty)}</div>`;
     frag.appendChild(d);
   });
@@ -519,6 +578,11 @@ function renderCarrinho(){
 }
 
 function limparCarrinho(){carrinho=[];renderCarrinho();}
+
+function removeCarrinho(id){
+  const idx=carrinho.findIndex(x=>x.id===id);
+  if(idx!==-1){carrinho.splice(idx,1);renderCarrinho();}
+}
 
 // Tecla Enter no campo de busca (maquininha/leitor de código de barras)
 function buscarPorEnter(e) {
@@ -1369,6 +1433,7 @@ boot();
   ['modal-sucesso',       'fecharSucesso'],
   ['modal-duplicado',     null],
   ['modal-avulso',        'fecharAvulso'],
+  ['modal-kg',            'fecharModalKg'],
 ].forEach(([id, fn]) => {
   document.getElementById(id)?.addEventListener('click', function(e) {
     if (e.target !== this) return;
