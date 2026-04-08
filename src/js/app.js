@@ -285,9 +285,6 @@ function logout() {
   document.getElementById('login-pass').value='';
 }
 
-let sessaoAtualId = null;
-let sessaoPendente = null;
-
 async function iniciarApp() {
   document.getElementById('topbar-user').textContent='👤 '+usuarioLogado;
 
@@ -414,7 +411,6 @@ function updateClock() {
   document.getElementById('clock-display').textContent=
     String(Math.floor(d/3600)).padStart(2,'0')+':'+String(Math.floor((d%3600)/60)).padStart(2,'0');
 }
-let clockTimer = null;
 function iniciarClock() {
   if (clockTimer) clearInterval(clockTimer);
   clockTimer = setInterval(updateClock, 1000);
@@ -1198,7 +1194,6 @@ async function confirmarFecharPrograma() {
 // =====================================================
 // TOAST (5.5 — durações por tipo + botão X)
 // =====================================================
-let toastTimer;
 function showToast(msg, tipo=false) {
   const t = document.getElementById('toast');
   t.innerHTML = `<span>${msg}</span><button class="toast-close" onclick="fecharToast()">✕</button>`;
