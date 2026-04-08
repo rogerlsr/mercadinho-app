@@ -449,7 +449,7 @@ function renderCaixa() {
   const frag = document.createDocumentFragment();
   lista.forEach((p,i)=>{
     const card=document.createElement('div');
-    card.className='produto-card'+(p.estoque<=0?' sem-estoque':'');
+    card.className='produto-card'+(p.unidade!=='kg'&&p.estoque<=0?' sem-estoque':'');
     const un=p.unidade||'un';
     card.innerHTML=`
       ${!q&&i<3?`<div class="top-rank">#${i+1}</div>`:''}
@@ -470,7 +470,8 @@ function renderCaixa() {
 // =====================================================
 function addCarrinho(id){
   const p=produtos.find(x=>x.id===id);
-  if(!p||p.estoque<=0) return;
+  if(!p) return;
+  if(p.unidade!=='kg'&&p.estoque<=0) return;
   const item=carrinho.find(x=>x.id===id);
   if(item){
     if(item.qty>=p.estoque){showToast('Estoque insuficiente!','red');return;}
@@ -642,7 +643,11 @@ async function confirmarVenda() {
 
   for(const ci of carrinho){
     const p=produtos.find(x=>x.id===ci.id);
-    if(p){p.estoque=Math.max(0,p.estoque-ci.qty);p.vendidos=(p.vendidos||0)+ci.qty;await dbPut('produtos',p);}
+    if(p){
+      if(p.unidade!=='kg') p.estoque=Math.max(0,p.estoque-ci.qty);
+      p.vendidos=(p.vendidos||0)+ci.qty;
+      await dbPut('produtos',p);
+    }
   }
 
   const pgtoLabel = PAGAMENTOS[pgtoSelecionado];
@@ -675,7 +680,7 @@ function renderEstoque(){
   const frag = document.createDocumentFragment();
   lista.forEach(p=>{
     const un=p.unidade||'un';
-    const badge=p.estoque<=0?'<span class="badge-zero">Zerado</span>':p.estoque<=10?'<span class="badge-baixo">Baixo</span>':'<span class="badge-ok">Normal</span>';
+    const badge=p.unidade==='kg'?'<span class="badge-ok">KG</span>':p.estoque<=0?'<span class="badge-zero">Zerado</span>':p.estoque<=10?'<span class="badge-baixo">Baixo</span>':'<span class="badge-ok">Normal</span>';
     const margem=p.custo>0?`<span style="color:var(--green);font-weight:700">${(((p.preco-p.custo)/p.custo)*100).toFixed(0)}%</span>`:'—';
     const tr=document.createElement('tr');
     tr.innerHTML=`
@@ -686,7 +691,7 @@ function renderEstoque(){
       <td style="color:var(--green);font-weight:700">${fmt(p.preco)}</td>
       <td>${p.custo>0?fmt(p.custo):'—'}</td>
       <td>${margem}</td>
-      <td>${p.estoque} ${un}</td>
+      <td>${p.unidade==='kg'?'—':p.estoque+' '+un}</td>
       <td>${badge}</td>
       <td style="white-space:nowrap">
         <button class="btn-edit" onclick="abrirEditar(${p.id})">✏️</button>
@@ -700,6 +705,13 @@ function renderEstoque(){
 // =====================================================
 // MODAL PRODUTO
 // =====================================================
+function toggleEstoqueField() {
+  const isKg = document.getElementById('m-unidade').value === 'kg';
+  const wrap = document.getElementById('m-estoque').closest('.fg');
+  wrap.style.display = isKg ? 'none' : '';
+  if (isKg) document.getElementById('m-estoque').value = '0';
+}
+
 function abrirModalProduto(){
   editandoId=null;
   document.getElementById('modal-titulo').textContent='Novo Produto';
@@ -707,6 +719,7 @@ function abrirModalProduto(){
   ['m-nome','m-barras','m-preco-venda','m-preco-custo','m-estoque'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('m-cat').value='Outros';
   document.getElementById('m-unidade').value='un';
+  toggleEstoqueField();
   document.getElementById('bd-produto').classList.add('open');
   document.getElementById('modal-produto').classList.add('open');
   setTimeout(()=>document.getElementById('m-nome').focus(),80);
@@ -724,6 +737,7 @@ function abrirEditar(id){
   document.getElementById('m-preco-custo').value=p.custo?String(p.custo).replace('.',','):'';
   document.getElementById('m-estoque').value=p.estoque;
   document.getElementById('m-unidade').value=p.unidade||'un';
+  toggleEstoqueField();
   document.getElementById('bd-produto').classList.add('open');
   document.getElementById('modal-produto').classList.add('open');
 }
