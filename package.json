@@ -13,8 +13,7 @@
     "productName": "Mercadinho",
     "copyright": "Roger",
     "win": {
-      "target": "nsis",
-      "icon": "icon.ico"
+      "target": "nsis"
     },
     "nsis": {
       "oneClick": false,
