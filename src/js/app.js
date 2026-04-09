@@ -625,6 +625,25 @@ function buscarPorEnter(e) {
     }
   }
 
+  // Fórmula de cálculo direto: ex 5*2,500 → R$12,50 avulso
+  if (/^\d+[,\.]?\d*\*\d+[,\.]?\d*$/.test(q)) {
+    const partes = q.split('*');
+    const a = parseFloat(partes[0].replace(',','.'));
+    const b = parseFloat(partes[1].replace(',','.'));
+    const valor = +(a * b).toFixed(2);
+    if (!isNaN(valor) && valor > 0) {
+      avulsoCounter--;
+      carrinho.push({ id: avulsoCounter, nome: 'Item KG', preco: valor, unidade: 'un', qty: 1 });
+      inp.value = '';
+      inp.placeholder = 'Buscar nome ou código de barras...';
+      ultimoProdutoKgId = null;
+      renderCarrinho();
+      renderCaixa();
+      showToast('Item KG — ' + fmt(valor), true);
+      return;
+    }
+  }
+
   // Sempre limpa o campo ao dar Enter
   inp.value = '';
   inp.placeholder = 'Buscar nome ou código de barras...';
