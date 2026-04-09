@@ -625,14 +625,19 @@ function buscarPorEnter(e) {
     }
   }
 
-  // Fórmula: código*peso ou preço*peso
-  if (/^\d+[,\.]?\d*\*\d+[,\.]?\d*$/.test(q)) {
+  // Fórmula código*peso: ex 05*2,500 → Banana 2,5 kg
+  if (/^\d+\*\d+[,\.]?\d*$/.test(q)) {
     const partes = q.split('*');
-    const parte1 = partes[0].trim();
+    const codigoBusca = partes[0].trim();
     const peso = parseFloat(partes[1].replace(',','.'));
-
-    // Verifica se parte1 é código de barras de produto KG
-    const prodKg = produtos.find(p => (p.barras||'') === parte1 && p.unidade === 'kg');
+    // Busca por barras com e sem zeros à esquerda
+    const prodKg = produtos.find(p =>
+      p.unidade === 'kg' && (
+        (p.barras||'') === codigoBusca ||
+        (p.barras||'') === String(parseInt(codigoBusca)) ||
+        String(parseInt(p.barras||'0')) === String(parseInt(codigoBusca))
+      )
+    );
     if (prodKg && !isNaN(peso) && peso > 0) {
       const pesoFmt = +peso.toFixed(3);
       const item = carrinho.find(x => x.id === prodKg.id);
@@ -643,18 +648,9 @@ function buscarPorEnter(e) {
       showToast(prodKg.nome + ' — ' + String(pesoFmt).replace('.',',') + ' kg', true);
       return;
     }
-
-    // Sem produto: trata como cálculo avulso (preço × peso)
-    const a = parseFloat(parte1.replace(',','.'));
-    const valor = +(a * peso).toFixed(2);
-    if (!isNaN(valor) && valor > 0) {
-      avulsoCounter--;
-      carrinho.push({ id: avulsoCounter, nome: 'Item KG', preco: valor, unidade: 'un', qty: 1 });
-      inp.value = ''; inp.placeholder = 'Buscar nome ou código de barras...'; ultimoProdutoKgId = null;
-      renderCarrinho(); renderCaixa();
-      showToast('Item KG — ' + fmt(valor), true);
-      return;
-    }
+    showToast('Produto KG não encontrado para o código: ' + codigoBusca, 'red');
+    inp.value = ''; inp.placeholder = 'Buscar nome ou código de barras...';
+    return;
   }
 
   // Sempre limpa o campo ao dar Enter
