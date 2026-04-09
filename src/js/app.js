@@ -625,20 +625,33 @@ function buscarPorEnter(e) {
     }
   }
 
-  // Fórmula de cálculo direto: ex 5*2,500 → R$12,50 avulso
+  // Fórmula: código*peso ou preço*peso
   if (/^\d+[,\.]?\d*\*\d+[,\.]?\d*$/.test(q)) {
     const partes = q.split('*');
-    const a = parseFloat(partes[0].replace(',','.'));
-    const b = parseFloat(partes[1].replace(',','.'));
-    const valor = +(a * b).toFixed(2);
+    const parte1 = partes[0].trim();
+    const peso = parseFloat(partes[1].replace(',','.'));
+
+    // Verifica se parte1 é código de barras de produto KG
+    const prodKg = produtos.find(p => (p.barras||'') === parte1 && p.unidade === 'kg');
+    if (prodKg && !isNaN(peso) && peso > 0) {
+      const pesoFmt = +peso.toFixed(3);
+      const item = carrinho.find(x => x.id === prodKg.id);
+      if (item) { item.qty = +(item.qty + pesoFmt).toFixed(3); }
+      else { carrinho.push({ id: prodKg.id, nome: prodKg.nome, preco: prodKg.preco, unidade: 'kg', qty: pesoFmt }); }
+      inp.value = ''; inp.placeholder = 'Buscar nome ou código de barras...'; ultimoProdutoKgId = null;
+      renderCarrinho(); renderCaixa();
+      showToast(prodKg.nome + ' — ' + String(pesoFmt).replace('.',',') + ' kg', true);
+      return;
+    }
+
+    // Sem produto: trata como cálculo avulso (preço × peso)
+    const a = parseFloat(parte1.replace(',','.'));
+    const valor = +(a * peso).toFixed(2);
     if (!isNaN(valor) && valor > 0) {
       avulsoCounter--;
       carrinho.push({ id: avulsoCounter, nome: 'Item KG', preco: valor, unidade: 'un', qty: 1 });
-      inp.value = '';
-      inp.placeholder = 'Buscar nome ou código de barras...';
-      ultimoProdutoKgId = null;
-      renderCarrinho();
-      renderCaixa();
+      inp.value = ''; inp.placeholder = 'Buscar nome ou código de barras...'; ultimoProdutoKgId = null;
+      renderCarrinho(); renderCaixa();
       showToast('Item KG — ' + fmt(valor), true);
       return;
     }
