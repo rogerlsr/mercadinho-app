@@ -23,6 +23,7 @@ let vendaOffset = 0;
 let totalVendasSemFiltro = 0;
 let avulsoCounter = 0;
 let kgProdutoId = null;
+let ultimoProdutoKgId = null;
 
 // =====================================================
 // HELPERS
@@ -472,7 +473,14 @@ function renderCaixa() {
 function addCarrinho(id){
   const p=produtos.find(x=>x.id===id);
   if(!p) return;
-  if(p.unidade==='kg'){ abrirModalKg(id); return; }
+  if(p.unidade==='kg'){
+    ultimoProdutoKgId=id;
+    const inp=document.getElementById('search-input');
+    inp.value='';
+    inp.placeholder=`Peso de ${p.nome} (ex: 2,500 ou 5*2,500)`;
+    inp.focus();
+    return;
+  }
   if(p.estoque<=0) return;
   const item=carrinho.find(x=>x.id===id);
   if(item){
@@ -591,8 +599,36 @@ function buscarPorEnter(e) {
   const q = (document.getElementById('search-input')?.value || '').trim();
   if (!q) return;
 
-  // Sempre limpa o campo ao dar Enter (pronto para o próximo código)
-  document.getElementById('search-input').value = '';
+  const inp = document.getElementById('search-input');
+
+  // Se parece fórmula de peso (ex: 2,500 ou 5*2,500) e tem produto KG selecionado
+  const pesoRegex = /^[\d]+[,\.]?[\d]*(\*[\d]+[,\.]?[\d]*)?$/;
+  if (pesoRegex.test(q) && ultimoProdutoKgId) {
+    const peso = parseKgFormula(q);
+    if (!isNaN(peso) && peso > 0) {
+      const p = produtos.find(x => x.id === ultimoProdutoKgId);
+      if (p) {
+        const item = carrinho.find(x => x.id === ultimoProdutoKgId);
+        if (item) {
+          item.qty = +(item.qty + peso).toFixed(3);
+        } else {
+          carrinho.push({ id: p.id, nome: p.nome, preco: p.preco, unidade: 'kg', qty: peso });
+        }
+        inp.value = '';
+        inp.placeholder = 'Buscar nome ou código de barras...';
+        ultimoProdutoKgId = null;
+        renderCarrinho();
+        renderCaixa();
+        showToast(p.nome + ' — ' + String(peso).replace('.', ',') + ' kg', true);
+        return;
+      }
+    }
+  }
+
+  // Sempre limpa o campo ao dar Enter
+  inp.value = '';
+  inp.placeholder = 'Buscar nome ou código de barras...';
+  ultimoProdutoKgId = null;
 
   // Verifica match exato de código de barras (prioridade)
   const exato = produtos.find(p => (p.barras || '') === q);
