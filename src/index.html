@@ -420,12 +420,12 @@
 </div>
 
 <!-- MODAL CUPOM -->
-<div class="modal-overlay" id="modal-cupom">
-  <div class="modal" style="width:360px;padding:24px 20px">
+<div id="modal-cupom" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:9000;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:20px;padding:24px 20px;width:360px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.25)">
     <div id="cupom-conteudo"></div>
     <div style="display:flex;gap:10px;margin-top:16px">
-      <button class="btn-cancel" style="flex:1" onclick="fecharCupom()">Fechar</button>
-      <button class="btn-save" style="flex:1" onclick="imprimirCupomAgora()">🖨️ Imprimir</button>
+      <button style="flex:1;padding:11px;background:#f3f4f6;border:none;border-radius:10px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer" onclick="fecharCupom()">Fechar</button>
+      <button style="flex:1;padding:11px;background:#16a34a;color:#fff;border:none;border-radius:10px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer" onclick="imprimirCupomAgora()">🖨️ Imprimir</button>
     </div>
   </div>
 </div>

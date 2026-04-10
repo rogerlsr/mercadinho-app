@@ -878,7 +878,6 @@ function imprimirCupom(venda, itens) {
     }
     conteudo.innerHTML = html;
     printArea.innerHTML = html;
-    modalEl.classList.add('open');
     modalEl.style.display = 'flex';
   } catch(e) {
     console.error('Erro ao gerar cupom:', e);
@@ -888,7 +887,7 @@ function imprimirCupom(venda, itens) {
 
 function fecharCupom() {
   const el = document.getElementById('modal-cupom');
-  if (el) { el.classList.remove('open'); el.style.display = ''; }
+  if (el) el.style.display = 'none';
 }
 
 function imprimirCupomAgora() {
@@ -1599,7 +1598,6 @@ boot();
   ['modal-duplicado',     null],
   ['modal-avulso',        'fecharAvulso'],
   ['modal-kg',            'fecharModalKg'],
-  ['modal-cupom',         'fecharCupom'],
 ].forEach(([id, fn]) => {
   document.getElementById(id)?.addEventListener('click', function(e) {
     if (e.target !== this) return;
@@ -1608,12 +1606,18 @@ boot();
   });
 });
 
+// Fechar cupom clicando no fundo
+document.getElementById('modal-cupom')?.addEventListener('click', function(e) {
+  if (e.target === this) fecharCupom();
+});
+
 // 5.4 — Atalhos de teclado
 document.addEventListener('keydown', e => {
   // Fechar qualquer modal aberto com Esc
   if (e.key === 'Escape') {
     const abertos = document.querySelectorAll('.modal-overlay.open, .admin-modal-overlay.open');
     abertos.forEach(m => m.classList.remove('open'));
+    fecharCupom();
     if (_confirmarCallback) fecharConfirmar();
     return;
   }
