@@ -855,10 +855,28 @@ function gerarHtmlCupom(venda, itens) {
 }
 
 function imprimirCupom(venda, itens) {
-  const html = gerarHtmlCupom(venda, itens);
-  document.getElementById('cupom-conteudo').innerHTML = html;
-  document.getElementById('cupom-print-area').innerHTML = html;
-  document.getElementById('modal-cupom').classList.add('open');
+  try {
+    const html = gerarHtmlCupom(venda, itens);
+    const conteudo = document.getElementById('cupom-conteudo');
+    const printArea = document.getElementById('cupom-print-area');
+    const modalEl = document.getElementById('modal-cupom');
+    if (!conteudo || !printArea || !modalEl) {
+      showToast('Erro: elementos do cupom não encontrados', 'red');
+      return;
+    }
+    conteudo.innerHTML = html;
+    printArea.innerHTML = html;
+    modalEl.classList.add('open');
+    modalEl.style.display = 'flex';
+  } catch(e) {
+    console.error('Erro ao gerar cupom:', e);
+    showToast('Erro ao gerar cupom: ' + (e?.message || e), 'red');
+  }
+}
+
+function fecharCupom() {
+  const el = document.getElementById('modal-cupom');
+  if (el) { el.classList.remove('open'); el.style.display = ''; }
 }
 
 function imprimirCupomAgora() {
@@ -1558,7 +1576,6 @@ _bc.postMessage('ping');
 boot();
 
 // Fechar modal clicando fora
-// Fechar modal clicando fora
 [
   ['modal-fechamento',    null],
   ['modal-venda',         null],
@@ -1570,6 +1587,7 @@ boot();
   ['modal-duplicado',     null],
   ['modal-avulso',        'fecharAvulso'],
   ['modal-kg',            'fecharModalKg'],
+  ['modal-cupom',         'fecharCupom'],
 ].forEach(([id, fn]) => {
   document.getElementById(id)?.addEventListener('click', function(e) {
     if (e.target !== this) return;
