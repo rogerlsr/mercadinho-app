@@ -773,40 +773,45 @@ function calcularTroco() {
 async function confirmarVenda() {
   if(carrinho.length===0) return;
   document.getElementById('modal-venda').classList.remove('open');
-  const total = carrinho.reduce((s,i)=>s+i.preco*i.qty, 0);
-  const recebido = parseFloat(document.getElementById('valor-recebido').value)||total;
-  const troco = pgtoSelecionado==='dinheiro' ? Math.max(0, recebido-total) : 0;
-  const itensStr = carrinho.map(i=>`${i.qty}x ${i.nome}`).join(', ');
-  const agora = new Date();
-  const hora = agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  try {
+    const total = carrinho.reduce((s,i)=>s+i.preco*i.qty, 0);
+    const recebido = parseFloat(document.getElementById('valor-recebido').value)||total;
+    const troco = pgtoSelecionado==='dinheiro' ? Math.max(0, recebido-total) : 0;
+    const itensStr = carrinho.map(i=>`${i.qty}x ${i.nome}`).join(', ');
+    const agora = new Date();
+    const hora = agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
 
-  // Captura itens antes de limpar o carrinho
-  const itensVenda = carrinho.map(i=>({...i}));
+    // Captura itens antes de limpar o carrinho
+    const itensVenda = carrinho.map(i=>({...i}));
 
-  for(const ci of carrinho){
-    const p=produtos.find(x=>x.id===ci.id);
-    if(p){
-      if(p.unidade!=='kg') p.estoque=Math.max(0,p.estoque-ci.qty);
-      p.vendidos=(p.vendidos||0)+ci.qty;
-      await dbPut('produtos',p);
+    for(const ci of carrinho){
+      const p=produtos.find(x=>x.id===ci.id);
+      if(p){
+        if(p.unidade!=='kg') p.estoque=Math.max(0,p.estoque-ci.qty);
+        p.vendidos=(p.vendidos||0)+ci.qty;
+        await dbPut('produtos',p);
+      }
     }
+
+    const pgtoLabel = PAGAMENTOS[pgtoSelecionado];
+    const venda={data:hoje(),hora,itensStr,total,pagamento:pgtoLabel,recebido,troco,criadoEm:agora.toISOString()};
+    const vid=await dbAdd('vendas',venda);
+    venda.id=vid; vendas.unshift(venda);
+
+    carrinho=[];
+    renderCarrinho();
+    renderCaixa();
+
+    await registrarAudit('VENDA', `Venda #${vid} — ${fmt(total)} (${pgtoLabel}) — ${itensStr}`);
+    let msg = `Venda #${vid} — ${fmt(total)} (${pgtoLabel})`;
+    if(pgtoSelecionado==='dinheiro' && troco>0) msg += ` · Troco: ${fmt(troco)}`;
+    showToast(msg, true);
+
+    imprimirCupom({...venda, id: vid}, itensVenda);
+  } catch(e) {
+    console.error('Erro ao confirmar venda:', e);
+    showToast('Erro ao registrar venda: ' + (e?.message || String(e)), 'red');
   }
-
-  const pgtoLabel = PAGAMENTOS[pgtoSelecionado];
-  const venda={data:hoje(),hora,itensStr,total,pagamento:pgtoLabel,recebido,troco,criadoEm:agora.toISOString()};
-  const vid=await dbAdd('vendas',venda);
-  venda.id=vid; vendas.unshift(venda);
-
-  carrinho=[];
-  renderCarrinho();
-  renderCaixa();
-
-  await registrarAudit('VENDA', `Venda #${vid} — ${fmt(total)} (${pgtoLabel}) — ${itensStr}`);
-  let msg = `Venda #${vid} — ${fmt(total)} (${pgtoLabel})`;
-  if(pgtoSelecionado==='dinheiro' && troco>0) msg += ` · Troco: ${fmt(troco)}`;
-  showToast(msg, true);
-
-  imprimirCupom({...venda, id: vid}, itensVenda);
 }
 
 // =====================================================
