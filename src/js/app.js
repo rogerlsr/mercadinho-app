@@ -732,10 +732,13 @@ function finalizarVenda() {
   if(carrinho.length===0) return;
   const total = carrinho.reduce((s,i)=>s+i.preco*i.qty, 0);
   document.getElementById('venda-total-display').textContent = fmt(total);
-  document.getElementById('valor-recebido').value = '';
+  // Pré-preenche com o total para habilitar o botão imediatamente (troco zero)
+  document.getElementById('valor-recebido').value = total.toFixed(2);
   document.getElementById('troco-display').style.display = 'none';
   selecionarPgto('dinheiro');
+  calcularTroco(); // habilita o botão Confirmar
   document.getElementById('modal-venda').classList.add('open');
+  setTimeout(() => document.getElementById('valor-recebido').select(), 80);
 }
 
 function selecionarPgto(tipo) {
@@ -761,8 +764,12 @@ function calcularTroco() {
   const trocoBox = document.getElementById('troco-display');
   if(recebido >= total) {
     const troco = recebido - total;
-    document.getElementById('troco-valor').textContent = fmt(troco);
-    trocoBox.style.display = 'block';
+    if(troco > 0) {
+      document.getElementById('troco-valor').textContent = fmt(troco);
+      trocoBox.style.display = 'block';
+    } else {
+      trocoBox.style.display = 'none';
+    }
     btn.style.opacity='1'; btn.style.cursor='pointer'; btn.disabled=false;
   } else {
     trocoBox.style.display = 'none';
