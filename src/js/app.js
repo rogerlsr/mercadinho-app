@@ -780,6 +780,9 @@ async function confirmarVenda() {
   const agora = new Date();
   const hora = agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
 
+  // Captura itens antes de limpar o carrinho
+  const itensVenda = carrinho.map(i=>({...i}));
+
   for(const ci of carrinho){
     const p=produtos.find(x=>x.id===ci.id);
     if(p){
@@ -802,6 +805,86 @@ async function confirmarVenda() {
   let msg = `Venda #${vid} — ${fmt(total)} (${pgtoLabel})`;
   if(pgtoSelecionado==='dinheiro' && troco>0) msg += ` · Troco: ${fmt(troco)}`;
   showToast(msg, true);
+
+  imprimirCupom({...venda, id: vid}, itensVenda);
+}
+
+// =====================================================
+// CUPOM FISCAL (BOBINA TÉRMICA)
+// =====================================================
+function imprimirCupom(venda, itens) {
+  const data = new Date(venda.criadoEm).toLocaleDateString('pt-BR');
+
+  const itensHtml = itens.map(i => {
+    const isKg = i.unidade === 'kg';
+    const qtdStr = isKg
+      ? String(i.qty).replace('.', ',') + ' kg'
+      : i.qty + ' un';
+    const total = i.preco * i.qty;
+    return `
+      <div style="margin-bottom:5px">
+        <div style="font-weight:bold">${i.nome}</div>
+        <div style="display:flex;justify-content:space-between">
+          <span>${qtdStr} x ${fmt(i.preco)}</span>
+          <span>${fmt(total)}</span>
+        </div>
+      </div>`;
+  }).join('');
+
+  const recebidoHtml = venda.pagamento === 'Dinheiro'
+    ? `<div style="display:flex;justify-content:space-between"><span>Recebido:</span><span>${fmt(venda.recebido)}</span></div>` : '';
+  const trocoHtml = venda.troco > 0
+    ? `<div style="display:flex;justify-content:space-between;font-weight:bold"><span>Troco:</span><span>${fmt(venda.troco)}</span></div>` : '';
+
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Courier New',monospace;font-size:12px;width:302px;padding:8px 10px;color:#000}
+  .center{text-align:center}
+  .bold{font-weight:bold}
+  hr{border:none;border-top:1px dashed #000;margin:6px 0}
+  @media print{body{margin:0;padding:6px}}
+</style>
+</head><body>
+  <div class="center bold" style="font-size:18px;letter-spacing:3px">MERCADINHO</div>
+  <div class="center" style="font-size:9px">Sistema de Caixa</div>
+  <hr>
+  <div style="display:flex;justify-content:space-between">
+    <span>Data: ${data}</span><span>Hora: ${venda.hora}</span>
+  </div>
+  <div>Cupom #${String(venda.id).padStart(6,'0')}</div>
+  <div>Operador: ${usuarioLogado||''}</div>
+  <hr>
+  <div style="display:flex;justify-content:space-between;font-weight:bold;margin-bottom:4px">
+    <span>ITEM</span><span>TOTAL</span>
+  </div>
+  <hr>
+  ${itensHtml}
+  <hr>
+  <div style="display:flex;justify-content:space-between;font-weight:bold;font-size:14px">
+    <span>TOTAL</span><span>${fmt(venda.total)}</span>
+  </div>
+  <hr>
+  <div style="display:flex;justify-content:space-between">
+    <span>Pagamento:</span><span>${venda.pagamento}</span>
+  </div>
+  ${recebidoHtml}
+  ${trocoHtml}
+  <hr>
+  <div class="center" style="margin-top:8px;font-size:11px">Obrigado pela preferência!</div>
+  <div class="center" style="font-size:11px">Volte sempre!</div>
+  <br><br>
+</body></html>`;
+
+  const win = window.open('about:blank','_blank','width=360,height=700,toolbar=no,menubar=no,scrollbars=yes');
+  if(!win) { showToast('Permita popups para imprimir o cupom', 'red'); return; }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  win.onafterprint = () => win.close();
+  setTimeout(() => win.print(), 500);
 }
 
 // =====================================================
