@@ -625,30 +625,41 @@ function buscarPorEnter(e) {
     }
   }
 
-  // Fórmula código*peso: ex 05*2,500 → Banana 2,5 kg
+  // Fórmula código*quantidade: ex 05*2,500 (KG) ou 07*3 (unidade)
   if (/^\d+\*\d+[,\.]?\d*$/.test(q)) {
     const partes = q.split('*');
     const codigoBusca = partes[0].trim();
-    const peso = parseFloat(partes[1].replace(',','.'));
-    // Busca por barras com e sem zeros à esquerda
-    const prodKg = produtos.find(p =>
-      p.unidade === 'kg' && (
-        (p.barras||'') === codigoBusca ||
-        (p.barras||'') === String(parseInt(codigoBusca)) ||
-        String(parseInt(p.barras||'0')) === String(parseInt(codigoBusca))
-      )
+    const qtdRaw = parseFloat(partes[1].replace(',','.'));
+    // Busca produto pelo código (com e sem zeros à esquerda)
+    const prod = produtos.find(p =>
+      (p.barras||'') === codigoBusca ||
+      (p.barras||'') === String(parseInt(codigoBusca)) ||
+      String(parseInt(p.barras||'0')) === String(parseInt(codigoBusca))
     );
-    if (prodKg && !isNaN(peso) && peso > 0) {
-      const pesoFmt = +peso.toFixed(3);
-      const item = carrinho.find(x => x.id === prodKg.id);
-      if (item) { item.qty = +(item.qty + pesoFmt).toFixed(3); }
-      else { carrinho.push({ id: prodKg.id, nome: prodKg.nome, preco: prodKg.preco, unidade: 'kg', qty: pesoFmt }); }
-      inp.value = ''; inp.placeholder = 'Buscar nome ou código de barras...'; ultimoProdutoKgId = null;
-      renderCarrinho(); renderCaixa();
-      showToast(prodKg.nome + ' — ' + String(pesoFmt).replace('.',',') + ' kg', true);
+    if (prod && !isNaN(qtdRaw) && qtdRaw > 0) {
+      if (prod.unidade === 'kg') {
+        // Produto KG → segunda parte é peso
+        const pesoFmt = +qtdRaw.toFixed(3);
+        const item = carrinho.find(x => x.id === prod.id);
+        if (item) { item.qty = +(item.qty + pesoFmt).toFixed(3); }
+        else { carrinho.push({ id: prod.id, nome: prod.nome, preco: prod.preco, unidade: 'kg', qty: pesoFmt }); }
+        inp.value = ''; inp.placeholder = 'Buscar nome ou código de barras...'; ultimoProdutoKgId = null;
+        renderCarrinho(); renderCaixa();
+        showToast(prod.nome + ' — ' + String(pesoFmt).replace('.',',') + ' kg', true);
+      } else {
+        // Produto unidade → segunda parte é quantidade
+        const qty = Math.max(1, Math.round(qtdRaw));
+        if (prod.estoque < qty) { showToast('Estoque insuficiente!', 'red'); inp.value = ''; return; }
+        const item = carrinho.find(x => x.id === prod.id);
+        if (item) { item.qty += qty; }
+        else { carrinho.push({ id: prod.id, nome: prod.nome, preco: prod.preco, unidade: prod.unidade||'un', qty }); }
+        inp.value = ''; inp.placeholder = 'Buscar nome ou código de barras...'; ultimoProdutoKgId = null;
+        renderCarrinho(); renderCaixa();
+        showToast(prod.nome + ' — ' + qty + ' un', true);
+      }
       return;
     }
-    showToast('Produto KG não encontrado para o código: ' + codigoBusca, 'red');
+    showToast('Produto não encontrado para o código: ' + codigoBusca, 'red');
     inp.value = ''; inp.placeholder = 'Buscar nome ou código de barras...';
     return;
   }
