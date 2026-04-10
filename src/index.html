@@ -419,6 +419,17 @@
   </div>
 </div>
 
+<!-- MODAL CUPOM -->
+<div class="modal-overlay" id="modal-cupom">
+  <div class="modal" style="width:360px;padding:24px 20px">
+    <div id="cupom-conteudo"></div>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn-cancel" style="flex:1" onclick="document.getElementById('modal-cupom').classList.remove('open')">Fechar</button>
+      <button class="btn-save" style="flex:1" onclick="imprimirCupomAgora()">🖨️ Imprimir</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL PESO KG -->
 <div class="modal-overlay" id="modal-kg">
   <div class="modal" style="width:340px;text-align:center">
@@ -635,6 +646,7 @@
   </div>
 </div>
 
+<div id="cupom-print-area" style="display:none"></div>
 <script src="js/app.js"></script>
 </body>
 </html>

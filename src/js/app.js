@@ -812,79 +812,57 @@ async function confirmarVenda() {
 // =====================================================
 // CUPOM FISCAL (BOBINA TÉRMICA)
 // =====================================================
-function imprimirCupom(venda, itens) {
+function gerarHtmlCupom(venda, itens) {
   const data = new Date(venda.criadoEm).toLocaleDateString('pt-BR');
+  const s = (v) => `<div style="display:flex;justify-content:space-between;margin:2px 0">`;
 
   const itensHtml = itens.map(i => {
     const isKg = i.unidade === 'kg';
-    const qtdStr = isKg
-      ? String(i.qty).replace('.', ',') + ' kg'
-      : i.qty + ' un';
+    const qtdStr = isKg ? String(i.qty).replace('.', ',') + ' kg' : i.qty + ' un';
     const total = i.preco * i.qty;
-    return `
-      <div style="margin-bottom:5px">
-        <div style="font-weight:bold">${i.nome}</div>
-        <div style="display:flex;justify-content:space-between">
-          <span>${qtdStr} x ${fmt(i.preco)}</span>
-          <span>${fmt(total)}</span>
-        </div>
-      </div>`;
+    return `<div style="margin-bottom:5px">
+      <div style="font-weight:bold">${i.nome}</div>
+      <div style="display:flex;justify-content:space-between">
+        <span>${qtdStr} x ${fmt(i.preco)}</span><span>${fmt(total)}</span>
+      </div></div>`;
   }).join('');
 
   const recebidoHtml = venda.pagamento === 'Dinheiro'
-    ? `<div style="display:flex;justify-content:space-between"><span>Recebido:</span><span>${fmt(venda.recebido)}</span></div>` : '';
+    ? `<div style="display:flex;justify-content:space-between;margin:2px 0"><span>Recebido:</span><span>${fmt(venda.recebido)}</span></div>` : '';
   const trocoHtml = venda.troco > 0
-    ? `<div style="display:flex;justify-content:space-between;font-weight:bold"><span>Troco:</span><span>${fmt(venda.troco)}</span></div>` : '';
+    ? `<div style="display:flex;justify-content:space-between;margin:2px 0;font-weight:bold"><span>Troco:</span><span>${fmt(venda.troco)}</span></div>` : '';
 
-  const html = `<!DOCTYPE html>
-<html><head><meta charset="UTF-8">
-<style>
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{font-family:'Courier New',monospace;font-size:12px;width:302px;padding:8px 10px;color:#000}
-  .center{text-align:center}
-  .bold{font-weight:bold}
-  hr{border:none;border-top:1px dashed #000;margin:6px 0}
-  @media print{body{margin:0;padding:6px}}
-</style>
-</head><body>
-  <div class="center bold" style="font-size:18px;letter-spacing:3px">MERCADINHO</div>
-  <div class="center" style="font-size:9px">Sistema de Caixa</div>
-  <hr>
-  <div style="display:flex;justify-content:space-between">
-    <span>Data: ${data}</span><span>Hora: ${venda.hora}</span>
-  </div>
-  <div>Cupom #${String(venda.id).padStart(6,'0')}</div>
-  <div>Operador: ${usuarioLogado||''}</div>
-  <hr>
-  <div style="display:flex;justify-content:space-between;font-weight:bold;margin-bottom:4px">
-    <span>ITEM</span><span>TOTAL</span>
-  </div>
-  <hr>
-  ${itensHtml}
-  <hr>
-  <div style="display:flex;justify-content:space-between;font-weight:bold;font-size:14px">
-    <span>TOTAL</span><span>${fmt(venda.total)}</span>
-  </div>
-  <hr>
-  <div style="display:flex;justify-content:space-between">
-    <span>Pagamento:</span><span>${venda.pagamento}</span>
-  </div>
-  ${recebidoHtml}
-  ${trocoHtml}
-  <hr>
-  <div class="center" style="margin-top:8px;font-size:11px">Obrigado pela preferência!</div>
-  <div class="center" style="font-size:11px">Volte sempre!</div>
-  <br><br>
-</body></html>`;
+  return `<div style="font-family:'Courier New',monospace;font-size:12px;color:#000">
+    <div style="text-align:center;font-size:18px;font-weight:bold;letter-spacing:3px">MERCADINHO</div>
+    <div style="text-align:center;font-size:9px;margin-bottom:4px">Sistema de Caixa</div>
+    <hr style="border:none;border-top:1px dashed #000;margin:6px 0">
+    <div style="display:flex;justify-content:space-between"><span>Data: ${data}</span><span>Hora: ${venda.hora}</span></div>
+    <div>Cupom #${String(venda.id).padStart(6,'0')}</div>
+    <div>Operador: ${usuarioLogado||''}</div>
+    <hr style="border:none;border-top:1px dashed #000;margin:6px 0">
+    <div style="display:flex;justify-content:space-between;font-weight:bold;margin-bottom:4px"><span>ITEM</span><span>TOTAL</span></div>
+    <hr style="border:none;border-top:1px dashed #000;margin:6px 0">
+    ${itensHtml}
+    <hr style="border:none;border-top:1px dashed #000;margin:6px 0">
+    <div style="display:flex;justify-content:space-between;font-weight:bold;font-size:14px;margin:4px 0"><span>TOTAL</span><span>${fmt(venda.total)}</span></div>
+    <hr style="border:none;border-top:1px dashed #000;margin:6px 0">
+    <div style="display:flex;justify-content:space-between;margin:2px 0"><span>Pagamento:</span><span>${venda.pagamento}</span></div>
+    ${recebidoHtml}${trocoHtml}
+    <hr style="border:none;border-top:1px dashed #000;margin:6px 0">
+    <div style="text-align:center;margin-top:8px;font-size:11px">Obrigado pela preferência!</div>
+    <div style="text-align:center;font-size:11px">Volte sempre!</div>
+  </div>`;
+}
 
-  const win = window.open('about:blank','_blank','width=360,height=700,toolbar=no,menubar=no,scrollbars=yes');
-  if(!win) { showToast('Permita popups para imprimir o cupom', 'red'); return; }
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  win.onafterprint = () => win.close();
-  setTimeout(() => win.print(), 500);
+function imprimirCupom(venda, itens) {
+  const html = gerarHtmlCupom(venda, itens);
+  document.getElementById('cupom-conteudo').innerHTML = html;
+  document.getElementById('cupom-print-area').innerHTML = html;
+  document.getElementById('modal-cupom').classList.add('open');
+}
+
+function imprimirCupomAgora() {
+  window.print();
 }
 
 // =====================================================
