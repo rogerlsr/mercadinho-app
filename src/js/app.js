@@ -784,17 +784,20 @@ function calcularTroco() {
 async function confirmarVenda() {
   if(carrinho.length===0) return;
   document.getElementById('modal-venda').classList.remove('open');
+
+  const total     = carrinho.reduce((s,i)=>s+i.preco*i.qty, 0);
+  const recebido  = parseFloat(document.getElementById('valor-recebido').value)||total;
+  const troco     = pgtoSelecionado==='dinheiro' ? Math.max(0, recebido-total) : 0;
+  const agora     = new Date();
+  const hora      = agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  const itensVenda= carrinho.map(i=>({...i}));
+  const itensStr  = carrinho.map(i=>`${i.qty}x ${i.nome}`).join(', ');
+  const pgtoLabel = PAGAMENTOS[pgtoSelecionado];
+  const venda     = {data:hoje(),hora,itensStr,total,pagamento:pgtoLabel,recebido,troco,criadoEm:agora.toISOString()};
+
+  // ── Operações no banco (única parte que pode falhar) ──────────
+  let vid;
   try {
-    const total = carrinho.reduce((s,i)=>s+i.preco*i.qty, 0);
-    const recebido = parseFloat(document.getElementById('valor-recebido').value)||total;
-    const troco = pgtoSelecionado==='dinheiro' ? Math.max(0, recebido-total) : 0;
-    const itensStr = carrinho.map(i=>`${i.qty}x ${i.nome}`).join(', ');
-    const agora = new Date();
-    const hora = agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-
-    // Captura itens antes de limpar o carrinho
-    const itensVenda = carrinho.map(i=>({...i}));
-
     for(const ci of carrinho){
       const p=produtos.find(x=>x.id===ci.id);
       if(p){
@@ -803,26 +806,28 @@ async function confirmarVenda() {
         await dbPut('produtos',p);
       }
     }
-
-    const pgtoLabel = PAGAMENTOS[pgtoSelecionado];
-    const venda={data:hoje(),hora,itensStr,total,pagamento:pgtoLabel,recebido,troco,criadoEm:agora.toISOString()};
-    const vid=await dbAdd('vendas',venda);
-    venda.id=vid; vendas.unshift(venda);
-
-    carrinho=[];
-    renderCarrinho();
-    renderCaixa();
-
-    await registrarAudit('VENDA', `Venda #${vid} — ${fmt(total)} (${pgtoLabel}) — ${itensStr}`);
-    let msg = `Venda #${vid} — ${fmt(total)} (${pgtoLabel})`;
-    if(pgtoSelecionado==='dinheiro' && troco>0) msg += ` · Troco: ${fmt(troco)}`;
-    showToast(msg, true);
-
-    imprimirCupom({...venda, id: vid}, itensVenda);
+    vid = await dbAdd('vendas', venda);
+    venda.id = vid;
+    vendas.unshift(venda);
   } catch(e) {
-    console.error('Erro ao confirmar venda:', e);
+    console.error('Erro ao salvar venda:', e);
     showToast('Erro ao registrar venda: ' + (e?.message || String(e)), 'red');
+    return;
   }
+
+  // ── Atualiza UI (sempre executa após salvar com sucesso) ──────
+  carrinho=[];
+  renderCarrinho();
+  renderCaixa();
+
+  let msg = `Venda #${vid} — ${fmt(total)} (${pgtoLabel})`;
+  if(pgtoSelecionado==='dinheiro' && troco>0) msg += ` · Troco: ${fmt(troco)}`;
+  showToast(msg, true);
+
+  imprimirCupom(venda, itensVenda);
+
+  // Auditoria em background — não bloqueia a UI
+  registrarAudit('VENDA', `Venda #${vid} — ${fmt(total)} (${pgtoLabel}) — ${itensStr}`);
 }
 
 // =====================================================
@@ -874,18 +879,63 @@ function imprimirCupom(venda, itens) {
   try {
     const html = gerarHtmlCupom(venda, itens);
 
-    // Área de impressão (usada pelo window.print)
+    // Atualiza área de impressão oculta (para window.print)
     const printArea = document.getElementById('cupom-print-area');
     if (printArea) printArea.innerHTML = html;
 
-    // Mostra cupom no painel do carrinho (sem modal)
-    const preview = document.getElementById('cupom-preview');
-    if (preview) preview.innerHTML = html;
+    // Remove overlay anterior se existir
+    const old = document.getElementById('_cupom_overlay');
+    if (old) old.remove();
 
-    document.getElementById('carr-vazio').style.display  = 'none';
-    document.getElementById('carr-items').style.display  = 'none';
-    document.getElementById('carr-footer').style.display = 'none';
-    document.getElementById('cupom-section').style.display = 'flex';
+    // Cria overlay fixo diretamente no body — garante visibilidade independente de CSS
+    const overlay = document.createElement('div');
+    overlay.id = '_cupom_overlay';
+    overlay.style.cssText = [
+      'position:fixed', 'inset:0', 'background:rgba(0,0,0,0.55)',
+      'z-index:99999', 'display:flex', 'align-items:center', 'justify-content:center'
+    ].join(';');
+
+    const box = document.createElement('div');
+    box.style.cssText = [
+      'background:#fff', 'border-radius:16px', 'max-width:400px', 'width:92%',
+      'max-height:90vh', 'display:flex', 'flex-direction:column', 'overflow:hidden',
+      'box-shadow:0 25px 70px rgba(0,0,0,0.45)'
+    ].join(';');
+
+    const header = document.createElement('div');
+    header.style.cssText = [
+      'padding:14px 20px', 'background:#16a34a', 'color:#fff',
+      'font-size:14px', 'font-weight:800', 'display:flex', 'align-items:center',
+      'gap:8px', 'flex-shrink:0', 'font-family:inherit'
+    ].join(';');
+    header.innerHTML = '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Venda Registrada com Sucesso!';
+
+    const content = document.createElement('div');
+    content.style.cssText = 'flex:1;overflow-y:auto;padding:16px 18px';
+    content.innerHTML = html;
+
+    const footer = document.createElement('div');
+    footer.style.cssText = [
+      'padding:10px 14px', 'display:flex', 'gap:10px',
+      'border-top:1px solid #e5e7eb', 'flex-shrink:0'
+    ].join(';');
+    const btnNova = document.createElement('button');
+    btnNova.textContent = 'Nova Venda';
+    btnNova.style.cssText = 'flex:1;padding:10px;background:#f3f4f6;border:1.5px solid #e5e7eb;border-radius:10px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer';
+    btnNova.onclick = fecharCupom;
+    const btnImpr = document.createElement('button');
+    btnImpr.textContent = '🖨️ Imprimir';
+    btnImpr.style.cssText = 'flex:1;padding:10px;background:#16a34a;color:#fff;border:none;border-radius:10px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer';
+    btnImpr.onclick = () => window.print();
+    footer.appendChild(btnNova);
+    footer.appendChild(btnImpr);
+
+    box.appendChild(header);
+    box.appendChild(content);
+    box.appendChild(footer);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
   } catch(e) {
     console.error('Erro ao gerar cupom:', e);
     showToast('Erro ao exibir cupom: ' + (e?.message || e), 'red');
@@ -893,7 +943,10 @@ function imprimirCupom(venda, itens) {
 }
 
 function fecharCupom() {
-  document.getElementById('cupom-section').style.display = 'none';
+  const overlay = document.getElementById('_cupom_overlay');
+  if (overlay) overlay.remove();
+  const section = document.getElementById('cupom-section');
+  if (section) section.style.display = 'none';
   renderCarrinho();
 }
 
