@@ -13,7 +13,7 @@ let clockTimer = null, toastTimer;
 // =====================================================
 // CONSTANTES
 // =====================================================
-const PAGAMENTOS = { dinheiro:'Dinheiro', pix:'PIX', debito:'Débito', credito:'Crédito', fiado:'Fiado' };
+const PAGAMENTOS = { dinheiro:'Dinheiro', pix:'PIX', debito:'Débito', credito:'Crédito', fiado:'Fiado', alimentacao:'Vale Alimentação', refeicao:'Vale Refeição' };
 const VENDAS_POR_PAGINA = 50;
 
 const hoje = () => new Date().toISOString().slice(0,10);
@@ -428,7 +428,11 @@ function navTo(page) {
   document.getElementById('page-'+page).classList.add('active');
   document.getElementById('nav-'+page).classList.add('active');
   if(page==='estoque') renderEstoque();
-  if(page==='vendas'){const f=document.getElementById('filtro-data');if(!f.value)f.value=hoje();renderVendas();}
+  if(page==='vendas'){
+    const f=document.getElementById('filtro-data');
+    f.value=hoje(); // sempre mostra hoje ao navegar
+    renderVendas().catch(e=>showToast('Erro ao carregar vendas: '+e.message,'red'));
+  }
 }
 
 // =====================================================
@@ -869,25 +873,28 @@ function gerarHtmlCupom(venda, itens) {
 function imprimirCupom(venda, itens) {
   try {
     const html = gerarHtmlCupom(venda, itens);
-    const conteudo = document.getElementById('cupom-conteudo');
+
+    // Área de impressão (usada pelo window.print)
     const printArea = document.getElementById('cupom-print-area');
-    const modalEl = document.getElementById('modal-cupom');
-    if (!conteudo || !printArea || !modalEl) {
-      showToast('Erro: elementos do cupom não encontrados', 'red');
-      return;
-    }
-    conteudo.innerHTML = html;
-    printArea.innerHTML = html;
-    modalEl.style.display = 'flex';
+    if (printArea) printArea.innerHTML = html;
+
+    // Mostra cupom no painel do carrinho (sem modal)
+    const preview = document.getElementById('cupom-preview');
+    if (preview) preview.innerHTML = html;
+
+    document.getElementById('carr-vazio').style.display  = 'none';
+    document.getElementById('carr-items').style.display  = 'none';
+    document.getElementById('carr-footer').style.display = 'none';
+    document.getElementById('cupom-section').style.display = 'flex';
   } catch(e) {
     console.error('Erro ao gerar cupom:', e);
-    showToast('Erro ao gerar cupom: ' + (e?.message || e), 'red');
+    showToast('Erro ao exibir cupom: ' + (e?.message || e), 'red');
   }
 }
 
 function fecharCupom() {
-  const el = document.getElementById('modal-cupom');
-  if (el) el.style.display = 'none';
+  document.getElementById('cupom-section').style.display = 'none';
+  renderCarrinho();
 }
 
 function imprimirCupomAgora() {
@@ -1604,11 +1611,6 @@ boot();
     if (fn) window[fn]();
     else this.classList.remove('open');
   });
-});
-
-// Fechar cupom clicando no fundo
-document.getElementById('modal-cupom')?.addEventListener('click', function(e) {
-  if (e.target === this) fecharCupom();
 });
 
 // 5.4 — Atalhos de teclado
