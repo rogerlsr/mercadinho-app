@@ -834,19 +834,20 @@ async function confirmarVenda() {
 // CUPOM FISCAL (BOBINA TÉRMICA)
 // =====================================================
 function gerarHtmlCupom(venda, itens) {
-  const data = new Date(venda.criadoEm).toLocaleDateString('pt-BR');
-  const s = (v) => `<div style="display:flex;justify-content:space-between;margin:2px 0">`;
+  const data = new Date(venda.criadoEm||Date.now()).toLocaleDateString('pt-BR');
 
-  const itensHtml = itens.map(i => {
-    const isKg = i.unidade === 'kg';
-    const qtdStr = isKg ? String(i.qty).replace('.', ',') + ' kg' : i.qty + ' un';
-    const total = i.preco * i.qty;
-    return `<div style="margin-bottom:5px">
-      <div style="font-weight:bold">${i.nome}</div>
-      <div style="display:flex;justify-content:space-between">
-        <span>${qtdStr} x ${fmt(i.preco)}</span><span>${fmt(total)}</span>
-      </div></div>`;
-  }).join('');
+  const itensHtml = (itens && itens.length > 0)
+    ? itens.map(i => {
+        const isKg = i.unidade === 'kg';
+        const qtdStr = isKg ? String(i.qty).replace('.', ',') + ' kg' : i.qty + ' un';
+        const subtotal = i.preco * i.qty;
+        return `<div style="margin-bottom:5px">
+          <div style="font-weight:bold">${i.nome}</div>
+          <div style="display:flex;justify-content:space-between">
+            <span>${qtdStr} × ${fmt(i.preco)}</span><span>${fmt(subtotal)}</span>
+          </div></div>`;
+      }).join('')
+    : `<div style="font-size:12px;line-height:1.8">${(venda.itensStr||'').split(', ').map(l=>`• ${l}`).join('<br>')}</div>`;
 
   const recebidoHtml = venda.pagamento === 'Dinheiro'
     ? `<div style="display:flex;justify-content:space-between;margin:2px 0"><span>Recebido:</span><span>${fmt(venda.recebido)}</span></div>` : '';
@@ -875,78 +876,42 @@ function gerarHtmlCupom(venda, itens) {
   </div>`;
 }
 
+function _abrirModalCupom(html, titulo) {
+  const printArea = document.getElementById('cupom-print-area');
+  if (printArea) printArea.innerHTML = html;
+
+  const t = document.getElementById('cupom-modal-titulo');
+  if (t) t.textContent = titulo || 'Cupom';
+
+  const content = document.getElementById('cupom-modal-content');
+  if (content) content.innerHTML = html;
+
+  const modal = document.getElementById('cupom-modal');
+  if (modal) modal.style.display = 'flex';
+}
+
 function imprimirCupom(venda, itens) {
   try {
     const html = gerarHtmlCupom(venda, itens);
-
-    // Atualiza área de impressão oculta (para window.print)
-    const printArea = document.getElementById('cupom-print-area');
-    if (printArea) printArea.innerHTML = html;
-
-    // Remove overlay anterior se existir
-    const old = document.getElementById('_cupom_overlay');
-    if (old) old.remove();
-
-    // Cria overlay fixo diretamente no body — garante visibilidade independente de CSS
-    const overlay = document.createElement('div');
-    overlay.id = '_cupom_overlay';
-    overlay.style.cssText = [
-      'position:fixed', 'inset:0', 'background:rgba(0,0,0,0.55)',
-      'z-index:99999', 'display:flex', 'align-items:center', 'justify-content:center'
-    ].join(';');
-
-    const box = document.createElement('div');
-    box.style.cssText = [
-      'background:#fff', 'border-radius:16px', 'max-width:400px', 'width:92%',
-      'max-height:90vh', 'display:flex', 'flex-direction:column', 'overflow:hidden',
-      'box-shadow:0 25px 70px rgba(0,0,0,0.45)'
-    ].join(';');
-
-    const header = document.createElement('div');
-    header.style.cssText = [
-      'padding:14px 20px', 'background:#16a34a', 'color:#fff',
-      'font-size:14px', 'font-weight:800', 'display:flex', 'align-items:center',
-      'gap:8px', 'flex-shrink:0', 'font-family:inherit'
-    ].join(';');
-    header.innerHTML = '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Venda Registrada com Sucesso!';
-
-    const content = document.createElement('div');
-    content.style.cssText = 'flex:1;overflow-y:auto;padding:16px 18px';
-    content.innerHTML = html;
-
-    const footer = document.createElement('div');
-    footer.style.cssText = [
-      'padding:10px 14px', 'display:flex', 'gap:10px',
-      'border-top:1px solid #e5e7eb', 'flex-shrink:0'
-    ].join(';');
-    const btnNova = document.createElement('button');
-    btnNova.textContent = 'Nova Venda';
-    btnNova.style.cssText = 'flex:1;padding:10px;background:#f3f4f6;border:1.5px solid #e5e7eb;border-radius:10px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer';
-    btnNova.onclick = fecharCupom;
-    const btnImpr = document.createElement('button');
-    btnImpr.textContent = '🖨️ Imprimir';
-    btnImpr.style.cssText = 'flex:1;padding:10px;background:#16a34a;color:#fff;border:none;border-radius:10px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer';
-    btnImpr.onclick = () => window.print();
-    footer.appendChild(btnNova);
-    footer.appendChild(btnImpr);
-
-    box.appendChild(header);
-    box.appendChild(content);
-    box.appendChild(footer);
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
-
+    _abrirModalCupom(html, `Venda #${String(venda.id||'').padStart(3,'0')} Registrada!`);
   } catch(e) {
     console.error('Erro ao gerar cupom:', e);
     showToast('Erro ao exibir cupom: ' + (e?.message || e), 'red');
   }
 }
 
+function verCupomVenda(v) {
+  try {
+    const html = gerarHtmlCupom(v, []);
+    _abrirModalCupom(html, `Cupom #${String(v.id).padStart(3,'0')}`);
+  } catch(e) {
+    showToast('Erro ao abrir cupom: ' + (e?.message || e), 'red');
+  }
+}
+
 function fecharCupom() {
-  const overlay = document.getElementById('_cupom_overlay');
-  if (overlay) overlay.remove();
-  const section = document.getElementById('cupom-section');
-  if (section) section.style.display = 'none';
+  const modal = document.getElementById('cupom-modal');
+  if (modal) modal.style.display = 'none';
   renderCarrinho();
 }
 
@@ -1147,6 +1112,13 @@ function _criarLinhaVenda(v) {
     <span class="venda-items">${v.itensStr}</span>
     ${v.pagamento?`<span style="font-size:11px;font-weight:700;background:var(--green-light);color:var(--green-dark);padding:3px 8px;border-radius:20px;white-space:nowrap">${v.pagamento}</span>`:''}
     <span class="venda-total">${fmt(v.total)}</span>`;
+  const btnCupom = document.createElement('button');
+  btnCupom.className = 'btn-del-venda';
+  btnCupom.title = 'Ver cupom';
+  btnCupom.textContent = '🧾';
+  btnCupom.addEventListener('click', () => verCupomVenda(v));
+  d.appendChild(btnCupom);
+
   const btnDel = document.createElement('button');
   btnDel.className = 'btn-del-venda';
   btnDel.title = 'Excluir venda';
