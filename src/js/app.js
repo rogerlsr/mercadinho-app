@@ -1080,6 +1080,158 @@ function adminNavTo(page) {
   if(page==='relatorios')  renderRelatorios();
   if(page==='auditoria')   renderAuditoria();
   if(page==='usuarios')   renderUsuariosAdmin();
+  if(page==='dados')       _resetImportUI();
+}
+
+// =====================================================
+// EXPORTAR / IMPORTAR DADOS
+// =====================================================
+async function exportarDados(tipo) {
+  try {
+    let data = {};
+    const ts = new Date().toISOString().slice(0,10);
+    let filename = '';
+    if (tipo === 'produtos' || tipo === 'tudo') {
+      data.produtos = await dbGetAll('produtos');
+    }
+    if (tipo === 'vendas' || tipo === 'tudo') {
+      data.vendas = await dbGetAll('vendas');
+    }
+    if (tipo === 'produtos') filename = `mercadinho-estoque-${ts}.json`;
+    else if (tipo === 'vendas') filename = `mercadinho-vendas-${ts}.json`;
+    else filename = `mercadinho-backup-${ts}.json`;
+
+    data._exportadoEm = new Date().toISOString();
+    data._versao = '1.0';
+
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    showToast(`Arquivo "${filename}" exportado!`, true);
+    await registrarAudit('EXPORTAR', `Exportação de ${tipo}`);
+  } catch(e) {
+    showToast('Erro ao exportar: ' + (e?.message || String(e)), 'red');
+  }
+}
+
+function _resetImportUI() {
+  const fi = document.getElementById('import-file');
+  const fn = document.getElementById('import-filename');
+  const pv = document.getElementById('import-preview');
+  if(fi) fi.value = '';
+  if(fn) fn.textContent = 'Nenhum arquivo selecionado';
+  if(pv) { pv.style.display = 'none'; pv.innerHTML = ''; }
+  _importDadosPendentes = null;
+}
+
+let _importDadosPendentes = null;
+
+function lerArquivoImport() {
+  const input = document.getElementById('import-file');
+  const fnEl  = document.getElementById('import-filename');
+  const pvEl  = document.getElementById('import-preview');
+  if (!input.files.length) return;
+  const file = input.files[0];
+  fnEl.textContent = file.name;
+  pvEl.style.display = 'none';
+  pvEl.innerHTML = '';
+  _importDadosPendentes = null;
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.produtos && !data.vendas) {
+        pvEl.style.display = 'block';
+        pvEl.innerHTML = '<span style="color:var(--red);font-weight:700">Arquivo inválido: nenhum dado de produtos ou vendas encontrado.</span>';
+        return;
+      }
+      _importDadosPendentes = data;
+
+      const nProd = (data.produtos || []).length;
+      const nVend = (data.vendas   || []).length;
+
+      let html = `<strong>Conteúdo do arquivo:</strong><ul style="margin:8px 0 12px;padding-left:20px">`;
+      if (nProd > 0) html += `<li>${nProd} produto(s) no estoque</li>`;
+      if (nVend > 0) html += `<li>${nVend} venda(s)</li>`;
+      if (data._exportadoEm) html += `<li>Exportado em: ${new Date(data._exportadoEm).toLocaleString('pt-BR')}</li>`;
+      html += `</ul>`;
+      html += `<p style="margin:0 0 12px;color:#92400e;font-weight:600;background:#fef3c7;padding:8px 12px;border-radius:8px">
+        ⚠️ Produtos com mesmo código de barras ou nome não serão duplicados.
+      </p>`;
+      html += `<button onclick="confirmarImport()" style="padding:9px 22px;background:#16a34a;color:#fff;border:none;border-radius:10px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer">
+        ✔ Confirmar Importação
+      </button>
+      <button onclick="_resetImportUI()" style="margin-left:10px;padding:9px 18px;background:none;border:1.5px solid var(--border);border-radius:10px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer">
+        Cancelar
+      </button>`;
+
+      pvEl.innerHTML = html;
+      pvEl.style.display = 'block';
+    } catch(_) {
+      pvEl.style.display = 'block';
+      pvEl.innerHTML = '<span style="color:var(--red);font-weight:700">Erro ao ler arquivo. Certifique-se de que é um JSON válido.</span>';
+    }
+  };
+  reader.readAsText(file);
+}
+
+async function confirmarImport() {
+  if (!_importDadosPendentes) return;
+  const data = _importDadosPendentes;
+  const pvEl = document.getElementById('import-preview');
+  pvEl.innerHTML = '<em style="color:var(--muted)">Importando...</em>';
+
+  let addedProd = 0, skippedProd = 0, addedVend = 0;
+
+  try {
+    if (data.produtos && data.produtos.length > 0) {
+      const existentes = await dbGetAll('produtos');
+      for (const p of data.produtos) {
+        try {
+          const dup = existentes.find(e => {
+            if (p.barras && e.barras) return p.barras === e.barras;
+            const nP = (p.nome || '').toLowerCase().trim();
+            const nE = (e.nome || '').toLowerCase().trim();
+            return nP !== '' && nP === nE;
+          });
+          if (dup) { skippedProd++; continue; }
+          const { id: _id, ...sem } = p;
+          await dbAdd('produtos', sem);
+          existentes.push(sem);
+          addedProd++;
+        } catch(_) { skippedProd++; }
+      }
+    }
+
+    if (data.vendas && data.vendas.length > 0) {
+      for (const v of data.vendas) {
+        try {
+          const { id: _id, ...sem } = v;
+          await dbAdd('vendas', sem);
+          addedVend++;
+        } catch(_) {}
+      }
+    }
+
+    // Recarrega memória
+    produtos = await dbGetAll('produtos');
+    produtos.sort((a,b)=>a.nome.localeCompare(b.nome));
+    vendas = await dbGetAll('vendas');
+    vendas.sort((a,b)=>b.id-a.id);
+
+    await registrarAudit('IMPORTAR', `+${addedProd} produtos, +${addedVend} vendas (${skippedProd} ignorados por duplicata)`);
+    showToast(`Importado: ${addedProd} produto(s), ${addedVend} venda(s). ${skippedProd > 0 ? skippedProd + ' ignorado(s).' : ''}`, true);
+    _resetImportUI();
+  } catch(e) {
+    pvEl.innerHTML = '<span style="color:var(--red);font-weight:700">Erro na importação: ' + (e?.message || String(e)) + '</span>';
+  }
 }
 async function renderRelatorios() {
   const mes=document.getElementById('filtro-mes').value;
