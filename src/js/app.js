@@ -1333,15 +1333,21 @@ function lerArquivoImport(input) {
 
       _dadosImport = { prods, vendas, nomeArquivo: file.name };
 
-      // Preview
-      const novos     = prods.filter(p => !produtos.find(x => _mesmoProduto(x, p))).length;
-      const existentes = prods.length - novos;
+      // Preview — calcula novos vs existentes com segurança
+      let novos = 0, existentes = 0;
+      for (const p of prods) {
+        try {
+          const dup = produtos.find(x => _mesmoProduto(x, p));
+          dup ? existentes++ : novos++;
+        } catch(_) { novos++; }
+      }
+
       document.getElementById('import-preview').innerHTML = `
-        <div><strong>Arquivo:</strong> ${file.name}</div>
-        <div><strong>Produtos no arquivo:</strong> ${prods.length}</div>
-        <div><strong>Novos (não existem aqui):</strong> <span style="color:var(--green);font-weight:700">${novos}</span></div>
-        <div><strong>Já existem no sistema:</strong> <span style="color:var(--muted);font-weight:700">${existentes}</span></div>
-        ${vendas.length ? `<div><strong>Vendas no arquivo:</strong> ${vendas.length} (não serão importadas)</div>` : ''}
+        <div style="margin-bottom:4px"><strong>Arquivo:</strong> ${file.name}</div>
+        <div style="margin-bottom:4px"><strong>Total de produtos no arquivo:</strong> ${prods.length}</div>
+        <div style="margin-bottom:4px"><strong>Novos (serão adicionados):</strong> <span style="color:var(--green-dark);font-weight:800">${novos}</span></div>
+        <div style="margin-bottom:4px"><strong>Já existem no sistema:</strong> <span style="color:var(--muted);font-weight:700">${existentes}</span></div>
+        ${vendas.length ? `<div style="margin-top:8px;color:var(--muted);font-size:12px">⚠️ O arquivo contém ${vendas.length} vendas — vendas não são importadas.</div>` : ''}
       `;
       document.getElementById('modal-importar').classList.add('open');
     } catch(err) {
@@ -1353,8 +1359,12 @@ function lerArquivoImport(input) {
 }
 
 function _mesmoProduto(a, b) {
-  if (a.barras && b.barras && a.barras === b.barras) return true;
-  return a.nome?.toLowerCase().trim() === b.nome?.toLowerCase().trim();
+  // Tem código de barras nos dois → usa só o barras
+  if (a.barras && b.barras) return a.barras === b.barras;
+  // Sem barras → compara nome só se ambos tiverem nome
+  const nA = (a.nome || '').toLowerCase().trim();
+  const nB = (b.nome || '').toLowerCase().trim();
+  return nA !== '' && nA === nB;
 }
 
 async function confirmarImport() {
