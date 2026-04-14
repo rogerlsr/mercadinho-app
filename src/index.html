@@ -134,7 +134,7 @@
   <div class="admin-modal">
     <h3>🔐 Acesso Administrativo</h3>
     <div class="login-err" id="admin-login-err" style="margin-bottom:12px">Credenciais inválidas ou sem permissão.</div>
-    <div class="fg"><label>Usuário</label><input type="text" id="admin-user" placeholder="Usuário admin" autocomplete="off"></div>
+    <div class="fg"><label>Usuário</label><input type="text" id="admin-user" placeholder="Usuário admin" autocomplete="off" onkeydown="if(event.key==='Enter')document.getElementById('admin-pass').focus()"></div>
     <div class="fg"><label>Senha</label><input type="password" id="admin-pass" placeholder="••••••••" onkeydown="if(event.key==='Enter')loginAdmin()"></div>
     <div class="modal-actions" style="margin-top:16px">
       <button class="btn-cancel" onclick="fecharLoginAdmin()">Cancelar</button>

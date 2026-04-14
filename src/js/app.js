@@ -1653,10 +1653,10 @@ function confirmarAcao() {
 }
 
 // =====================================================
-// TIMEOUT DE SESSÃO (5.3 — 30 min de inatividade)
+// TIMEOUT DE SESSÃO (5.3 — 8h de inatividade, adequado para PDV)
 // =====================================================
-const TIMEOUT_SESSAO = 30 * 60 * 1000;
-const AVISO_TIMEOUT  =  2 * 60 * 1000;
+const TIMEOUT_SESSAO = 8 * 60 * 60 * 1000;   // 8 horas
+const AVISO_TIMEOUT  = 5 * 60 * 1000;         // aviso 5 min antes
 let timerSessao = null, timerAviso = null;
 
 function resetarTimeoutSessao() {
@@ -1797,6 +1797,33 @@ document.addEventListener('keydown', e => {
     if (_confirmarCallback) fecharConfirmar();
     return;
   }
+
+  // Enter confirma o modal/ação ativa
+  if (e.key === 'Enter') {
+    // Cupom aberto → fecha (Nova Venda)
+    if (document.getElementById('cupom-modal')?.style.display === 'flex') {
+      e.preventDefault(); fecharCupom(); return;
+    }
+    // Modal de confirmação (excluir etc.)
+    if (document.getElementById('modal-confirmar')?.classList.contains('open')) {
+      e.preventDefault(); confirmarAcao(); return;
+    }
+    // Modal de pagamento → confirmar venda se botão habilitado
+    if (document.getElementById('modal-venda')?.classList.contains('open')) {
+      const btn = document.getElementById('btn-confirmar-venda');
+      if (btn && !btn.disabled) { e.preventDefault(); confirmarVenda(); }
+      return;
+    }
+    // Modal produto → salvar
+    if (document.getElementById('modal-produto')?.classList.contains('open')) {
+      e.preventDefault(); salvarProduto(); return;
+    }
+    // Modal usuário admin → salvar
+    if (document.getElementById('modal-usuario')?.classList.contains('open')) {
+      e.preventDefault(); salvarUsuario(); return;
+    }
+  }
+
   // F1–F4 navegam entre abas (apenas quando o app está visível)
   if (!usuarioLogado) return;
   const mapa = { F1:'caixa', F2:'estoque', F3:'vendas' };
