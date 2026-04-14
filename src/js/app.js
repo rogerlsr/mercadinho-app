@@ -1267,7 +1267,155 @@ function adminNavTo(page) {
   document.getElementById('anav-'+page).classList.add('active');
   if(page==='relatorios')  renderRelatorios();
   if(page==='auditoria')   renderAuditoria();
-  if(page==='usuarios')   renderUsuariosAdmin();
+  if(page==='usuarios')    renderUsuariosAdmin();
+}
+
+// =====================================================
+// IMPORTAR / EXPORTAR
+// =====================================================
+let _dadosImport = null;
+
+async function exportarDados(tipo) {
+  try {
+    const prods = await dbGetAll('produtos');
+    const obj = {
+      versao: 'mercadinho-v1',
+      exportadoEm: new Date().toISOString(),
+      app: 'Mercadinho Sistema de Caixa',
+      produtos: prods,
+    };
+    if (tipo === 'completo') {
+      obj.vendas = await dbGetAll('vendas');
+    }
+    const json = JSON.stringify(obj, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `mercadinho-${tipo}-${hoje()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    const msg = tipo === 'completo'
+      ? `Backup completo: ${prods.length} produtos + ${obj.vendas.length} vendas`
+      : `${prods.length} produtos exportados`;
+    showToast(msg, true);
+    await registrarAudit('EXPORTAR', `Exportação tipo=${tipo}: ${prods.length} produtos`);
+  } catch(e) {
+    showToast('Erro ao exportar: ' + (e?.message || e), 'red');
+  }
+}
+
+function lerArquivoImport(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const raw = JSON.parse(e.target.result);
+      // Aceita: {produtos:[...]}, {versao,produtos,...}, ou array direto
+      let prods = [];
+      let vendas = [];
+      if (Array.isArray(raw)) {
+        prods = raw;
+      } else {
+        prods  = Array.isArray(raw.produtos) ? raw.produtos : [];
+        vendas = Array.isArray(raw.vendas)   ? raw.vendas   : [];
+      }
+
+      if (prods.length === 0) {
+        showToast('Nenhum produto encontrado no arquivo.', 'red');
+        input.value = '';
+        return;
+      }
+
+      _dadosImport = { prods, vendas, nomeArquivo: file.name };
+
+      // Preview
+      const novos     = prods.filter(p => !produtos.find(x => _mesmoProduto(x, p))).length;
+      const existentes = prods.length - novos;
+      document.getElementById('import-preview').innerHTML = `
+        <div><strong>Arquivo:</strong> ${file.name}</div>
+        <div><strong>Produtos no arquivo:</strong> ${prods.length}</div>
+        <div><strong>Novos (não existem aqui):</strong> <span style="color:var(--green);font-weight:700">${novos}</span></div>
+        <div><strong>Já existem no sistema:</strong> <span style="color:var(--muted);font-weight:700">${existentes}</span></div>
+        ${vendas.length ? `<div><strong>Vendas no arquivo:</strong> ${vendas.length} (não serão importadas)</div>` : ''}
+      `;
+      document.getElementById('modal-importar').classList.add('open');
+    } catch(err) {
+      showToast('Arquivo inválido ou corrompido.', 'red');
+      input.value = '';
+    }
+  };
+  reader.readAsText(file);
+}
+
+function _mesmoProduto(a, b) {
+  if (a.barras && b.barras && a.barras === b.barras) return true;
+  return a.nome?.toLowerCase().trim() === b.nome?.toLowerCase().trim();
+}
+
+async function confirmarImport() {
+  if (!_dadosImport) return;
+  const modo = document.getElementById('import-modo').value;
+  const { prods } = _dadosImport;
+  document.getElementById('modal-importar').classList.remove('open');
+  document.getElementById('import-file-input').value = '';
+
+  try {
+    let adicionados = 0, atualizados = 0, ignorados = 0;
+
+    if (modo === 'substituir') {
+      // Apaga todos os produtos atuais
+      const ids = produtos.map(p => p.id);
+      for (const id of ids) await dbDelete('produtos', id);
+      produtos = [];
+    }
+
+    for (const p of prods) {
+      // Remove o id do arquivo para o DB gerar um novo (evita conflito)
+      const { id: _, ...prodSemId } = p;
+      // Normaliza campos obrigatórios
+      const novo = {
+        nome:       prodSemId.nome       || 'Sem nome',
+        preco:      Number(prodSemId.preco)      || 0,
+        precoCusto: Number(prodSemId.precoCusto) || 0,
+        barras:     prodSemId.barras     || '',
+        categoria:  prodSemId.categoria  || '',
+        unidade:    prodSemId.unidade    || 'un',
+        estoque:    Number(prodSemId.estoque)    || 0,
+        vendidos:   Number(prodSemId.vendidos)   || 0,
+      };
+
+      const existente = produtos.find(x => _mesmoProduto(x, novo));
+
+      if (existente) {
+        if (modo === 'atualizar') {
+          const atualizado = { ...existente, ...novo, id: existente.id };
+          await dbPut('produtos', atualizado);
+          Object.assign(existente, atualizado);
+          atualizados++;
+        } else {
+          ignorados++;
+        }
+      } else {
+        const newId = await dbAdd('produtos', novo);
+        produtos.push({ ...novo, id: newId });
+        adicionados++;
+      }
+    }
+
+    renderCaixa();
+    renderEstoque();
+
+    const resumo = `Importação concluída: ${adicionados} adicionados, ${atualizados} atualizados, ${ignorados} ignorados`;
+    showToast(resumo, true);
+    await registrarAudit('IMPORTAR', resumo);
+    _dadosImport = null;
+  } catch(e) {
+    showToast('Erro ao importar: ' + (e?.message || e), 'red');
+  }
 }
 async function renderRelatorios() {
   const mes=document.getElementById('filtro-mes').value;

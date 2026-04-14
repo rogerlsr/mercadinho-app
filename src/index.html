@@ -169,6 +169,10 @@
         <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
         Auditoria
       </button>
+      <button class="admin-nav" id="anav-dados" onclick="adminNavTo('dados')">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        Importar / Exportar
+      </button>
     </div>
     <div class="admin-content">
 
@@ -257,6 +261,58 @@
         </table>
       </div>
 
+      <!-- IMPORTAR / EXPORTAR -->
+      <div class="admin-page" id="apage-dados">
+        <div class="admin-section-title">Importar / Exportar Dados</div>
+
+        <!-- EXPORTAR -->
+        <div class="admin-card" style="padding:22px;margin-bottom:16px">
+          <div style="font-size:15px;font-weight:800;margin-bottom:6px">📤 Exportar Backup</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.6">Gera um arquivo <strong>.json</strong> com todos os produtos e vendas. Use para fazer backup ou transferir para outro computador.</div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="btn-save" style="padding:10px 20px" onclick="exportarDados('completo')">
+              <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Backup Completo (produtos + vendas)
+            </button>
+            <button class="btn-cancel" style="padding:10px 20px" onclick="exportarDados('produtos')">
+              <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Apenas Produtos
+            </button>
+          </div>
+        </div>
+
+        <!-- IMPORTAR -->
+        <div class="admin-card" style="padding:22px">
+          <div style="font-size:15px;font-weight:800;margin-bottom:6px">📥 Importar Dados</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.6">Selecione um arquivo <strong>.json</strong> exportado pelo Mercadinho. Os produtos serão importados para o banco atual.</div>
+          <input type="file" id="import-file-input" accept=".json" style="display:none" onchange="lerArquivoImport(this)">
+          <button class="btn-save" style="padding:10px 20px;background:#3b82f6" onclick="document.getElementById('import-file-input').click()">
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Selecionar arquivo .json
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- MODAL IMPORTAR -->
+<div class="admin-modal-overlay" id="modal-importar">
+  <div class="admin-modal" style="width:520px;max-width:96vw">
+    <h3>Confirmar Importação</h3>
+    <div id="import-preview" style="background:var(--bg);border-radius:10px;padding:14px;margin-bottom:16px;font-size:13px;line-height:1.8"></div>
+    <div class="fg">
+      <label>Modo de importação</label>
+      <select id="import-modo" style="width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:10px;font-family:inherit;font-size:14px;outline:none">
+        <option value="novo">Apenas novos — importa só produtos que não existem ainda</option>
+        <option value="atualizar">Atualizar + adicionar — atualiza existentes e adiciona novos</option>
+        <option value="substituir">Substituir tudo — apaga produtos atuais e importa todos</option>
+      </select>
+    </div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn-cancel" onclick="document.getElementById('modal-importar').classList.remove('open');document.getElementById('import-file-input').value=''">Cancelar</button>
+      <button class="btn-save" onclick="confirmarImport()">Importar</button>
     </div>
   </div>
 </div>
