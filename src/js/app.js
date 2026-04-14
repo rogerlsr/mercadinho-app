@@ -815,16 +815,17 @@ async function confirmarVenda() {
     return;
   }
 
-  // ── Atualiza UI (sempre executa após salvar com sucesso) ──────
+  // ── Cupom PRIMEIRO — antes de qualquer outro render ──────────
+  imprimirCupom(venda, itensVenda);
+
+  // ── Atualiza restante da UI ────────────────────────────────
   carrinho=[];
-  renderCarrinho();
-  renderCaixa();
+  try { renderCarrinho(); } catch(_){}
+  try { renderCaixa();    } catch(_){}
 
   let msg = `Venda #${vid} — ${fmt(total)} (${pgtoLabel})`;
   if(pgtoSelecionado==='dinheiro' && troco>0) msg += ` · Troco: ${fmt(troco)}`;
   showToast(msg, true);
-
-  imprimirCupom(venda, itensVenda);
 
   // Auditoria em background — não bloqueia a UI
   registrarAudit('VENDA', `Venda #${vid} — ${fmt(total)} (${pgtoLabel}) — ${itensStr}`);
