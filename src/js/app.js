@@ -667,13 +667,15 @@ async function confirmarVenda() {
 // =====================================================
 // ESTOQUE
 // =====================================================
+let estoqueSelecionados = new Set();
+
 function renderEstoque(){
   const q=(document.getElementById('estoque-busca')?.value||'').toLowerCase();
   const lista=q?produtos.filter(p=>p.nome.toLowerCase().includes(q)||(p.barras||'').includes(q)):[...produtos];
   const tbody=document.getElementById('estoque-tbody');
   tbody.innerHTML='';
   if(lista.length===0){
-    tbody.innerHTML='<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:28px">Nenhum produto encontrado.</td></tr>';
+    tbody.innerHTML='<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:28px">Nenhum produto encontrado.</td></tr>';
     return;
   }
   const frag = document.createDocumentFragment();
@@ -681,8 +683,11 @@ function renderEstoque(){
     const un=p.unidade||'un';
     const badge=p.estoque<=0?'<span class="badge-zero">Zerado</span>':p.estoque<=10?'<span class="badge-baixo">Baixo</span>':'<span class="badge-ok">Normal</span>';
     const margem=p.custo>0?`<span style="color:var(--green);font-weight:700">${(((p.preco-p.custo)/p.custo)*100).toFixed(0)}%</span>`:'—';
+    const checked = estoqueSelecionados.has(p.id) ? 'checked' : '';
     const tr=document.createElement('tr');
+    tr.style.background = estoqueSelecionados.has(p.id) ? '#fef2f2' : '';
     tr.innerHTML=`
+      <td><input type="checkbox" ${checked} onchange="toggleSelecionarEstoque(${p.id}, this.checked)" style="cursor:pointer;width:16px;height:16px"></td>
       <td><strong>${p.nome}</strong></td>
       <td style="color:var(--muted);font-size:12px">${p.barras||'—'}</td>
       <td>${p.categoria||'—'}</td>
@@ -699,6 +704,84 @@ function renderEstoque(){
     frag.appendChild(tr);
   });
   tbody.appendChild(frag);
+  _atualizarToolbarEstoque();
+}
+
+function toggleSelecionarEstoque(id, checked) {
+  checked ? estoqueSelecionados.add(id) : estoqueSelecionados.delete(id);
+  _atualizarToolbarEstoque();
+  // Atualiza cor da linha
+  const checkboxes = document.querySelectorAll('#estoque-tbody input[type=checkbox]');
+  checkboxes.forEach(cb => {
+    const pid = parseInt(cb.getAttribute('onchange').match(/\d+/)[0]);
+    cb.closest('tr').style.background = estoqueSelecionados.has(pid) ? '#fef2f2' : '';
+  });
+  // Atualiza "marcar todos"
+  const lista = document.querySelectorAll('#estoque-tbody input[type=checkbox]');
+  const checkAll = document.getElementById('estoque-check-all');
+  if(checkAll) checkAll.checked = lista.length > 0 && [...lista].every(c => c.checked);
+}
+
+function selecionarTodosEstoque(checked) {
+  const checkboxes = document.querySelectorAll('#estoque-tbody input[type=checkbox]');
+  checkboxes.forEach(cb => {
+    cb.checked = checked;
+    const pid = parseInt(cb.getAttribute('onchange').match(/\d+/)[0]);
+    checked ? estoqueSelecionados.add(pid) : estoqueSelecionados.delete(pid);
+    cb.closest('tr').style.background = checked ? '#fef2f2' : '';
+  });
+  const checkAll = document.getElementById('estoque-check-all');
+  if(checkAll) checkAll.checked = checked;
+  _atualizarToolbarEstoque();
+}
+
+function _atualizarToolbarEstoque() {
+  const toolbar = document.getElementById('estoque-toolbar');
+  const count   = document.getElementById('estoque-toolbar-count');
+  if (!toolbar) return;
+  if (estoqueSelecionados.size > 0) {
+    toolbar.style.display = 'flex';
+    count.textContent = `${estoqueSelecionados.size} produto(s) selecionado(s)`;
+  } else {
+    toolbar.style.display = 'none';
+  }
+}
+
+function excluirSelecionadosEstoque() {
+  if (estoqueSelecionados.size === 0) return;
+  const n = estoqueSelecionados.size;
+  mostrarConfirmar(
+    'Excluir Selecionados',
+    `Excluir ${n} produto(s) selecionado(s) do estoque? Esta ação não pode ser desfeita.`,
+    async () => {
+      for (const id of estoqueSelecionados) {
+        await dbDelete('produtos', id);
+      }
+      await registrarAudit('EXCLUIR_VARIOS', `${n} produtos excluídos em lote`);
+      produtos = produtos.filter(p => !estoqueSelecionados.has(p.id));
+      estoqueSelecionados.clear();
+      renderEstoque();
+      renderCaixa();
+      showToast(`${n} produto(s) excluído(s)`, true);
+    }
+  );
+}
+
+function excluirTodosEstoque() {
+  if (produtos.length === 0) { showToast('Nenhum produto no estoque.', 'red'); return; }
+  mostrarConfirmar(
+    'Apagar Todo o Estoque',
+    `Apagar TODOS os ${produtos.length} produtos do estoque? Esta ação não pode ser desfeita.`,
+    async () => {
+      for (const p of produtos) await dbDelete('produtos', p.id);
+      await registrarAudit('EXCLUIR_TUDO', `Todos os ${produtos.length} produtos excluídos`);
+      produtos = [];
+      estoqueSelecionados.clear();
+      renderEstoque();
+      renderCaixa();
+      showToast('Estoque apagado completamente.', true);
+    }
+  );
 }
 
 // =====================================================

@@ -373,14 +373,29 @@
             <input type="text" id="estoque-busca" placeholder="Buscar produto ou código..." oninput="renderEstoqueDebounced()">
           </div>
         </div>
-        <button class="btn-novo" onclick="abrirModalProduto()">
-          <svg width="15" height="15" fill="none" stroke="white" stroke-width="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Novo Produto
-        </button>
+        <div style="display:flex;gap:8px">
+          <button class="btn-novo" style="background:#ef4444" onclick="excluirTodosEstoque()">
+            <svg width="15" height="15" fill="none" stroke="white" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 11a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+            Apagar Tudo
+          </button>
+          <button class="btn-novo" onclick="abrirModalProduto()">
+            <svg width="15" height="15" fill="none" stroke="white" stroke-width="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Novo Produto
+          </button>
+        </div>
       </div>
+
+      <!-- Toolbar de seleção (aparece quando tem itens marcados) -->
+      <div id="estoque-toolbar" style="display:none;align-items:center;gap:12px;padding:10px 16px;background:#fef2f2;border:1.5px solid #fecaca;border-radius:12px;margin-bottom:10px">
+        <span id="estoque-toolbar-count" style="font-size:13px;font-weight:700;color:var(--red);flex:1"></span>
+        <button onclick="selecionarTodosEstoque(false)" style="padding:7px 14px;background:none;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">Desmarcar todos</button>
+        <button onclick="excluirSelecionadosEstoque()" style="padding:7px 16px;background:#ef4444;color:#fff;border:none;border-radius:8px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">🗑️ Excluir selecionados</button>
+      </div>
+
       <table class="estoque-table">
         <thead>
           <tr>
+            <th style="width:36px"><input type="checkbox" id="estoque-check-all" onchange="selecionarTodosEstoque(this.checked)" style="cursor:pointer;width:16px;height:16px"></th>
             <th>Produto</th>
             <th>Cód. Barras</th>
             <th>Categoria</th>
