@@ -262,12 +262,13 @@
             Selecione um arquivo <strong>.json</strong> exportado anteriormente por este sistema.<br>
             Produtos com mesmo código de barras ou nome não serão duplicados.
           </p>
+          <!-- input fora do fluxo visual mas acessível ao JS -->
+          <input type="file" id="import-file" accept=".json" style="position:absolute;opacity:0;width:1px;height:1px;pointer-events:none">
           <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-            <label style="display:inline-flex;align-items:center;gap:8px;padding:9px 18px;background:#1e293b;color:#fff;border-radius:10px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">
+            <button id="btn-escolher-arquivo" style="display:inline-flex;align-items:center;gap:8px;padding:9px 18px;background:#1e293b;color:#fff;border:none;border-radius:10px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">
               <svg width="15" height="15" fill="none" stroke="white" stroke-width="2.5" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              Escolher arquivo
-              <input type="file" id="import-file" accept=".json" style="display:none" onchange="lerArquivoImport()">
-            </label>
+              Escolher arquivo .json
+            </button>
             <span id="import-filename" style="font-size:13px;color:var(--muted);font-style:italic">Nenhum arquivo selecionado</span>
           </div>
           <div id="import-preview" style="display:none;margin-top:16px;padding:14px;background:#fff;border:1.5px solid var(--border);border-radius:10px;font-size:13px"></div>

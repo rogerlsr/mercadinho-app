@@ -1132,54 +1132,73 @@ function _resetImportUI() {
 
 let _importDadosPendentes = null;
 
-function lerArquivoImport() {
+function _initImportListeners() {
+  const btn   = document.getElementById('btn-escolher-arquivo');
   const input = document.getElementById('import-file');
-  const fnEl  = document.getElementById('import-filename');
-  const pvEl  = document.getElementById('import-preview');
-  if (!input.files.length) return;
-  const file = input.files[0];
-  fnEl.textContent = file.name;
-  pvEl.style.display = 'none';
-  pvEl.innerHTML = '';
-  _importDadosPendentes = null;
+  if (!btn || !input) return;
 
-  const reader = new FileReader();
-  reader.onload = e => {
-    try {
-      const data = JSON.parse(e.target.result);
-      if (!data.produtos && !data.vendas) {
+  btn.addEventListener('click', () => input.click());
+
+  input.addEventListener('change', () => {
+    const fnEl = document.getElementById('import-filename');
+    const pvEl = document.getElementById('import-preview');
+    if (!input.files.length) return;
+    const file = input.files[0];
+    fnEl.textContent = file.name;
+    pvEl.style.display = 'none';
+    pvEl.innerHTML = '';
+    _importDadosPendentes = null;
+
+    const reader = new FileReader();
+    reader.onerror = () => {
+      pvEl.style.display = 'block';
+      pvEl.innerHTML = '<span style="color:var(--red);font-weight:700">Erro ao ler o arquivo.</span>';
+    };
+    reader.onload = ev => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!data.produtos && !data.vendas) {
+          pvEl.style.display = 'block';
+          pvEl.innerHTML = '<span style="color:var(--red);font-weight:700">Arquivo inválido: nenhum dado de produtos ou vendas encontrado.</span>';
+          return;
+        }
+        _importDadosPendentes = data;
+
+        const nProd = (data.produtos || []).length;
+        const nVend = (data.vendas   || []).length;
+
+        // Monta preview via DOM (sem onclick em innerHTML)
+        pvEl.innerHTML = '';
+
+        const info = document.createElement('div');
+        let infoHtml = `<strong>Conteúdo do arquivo:</strong><ul style="margin:8px 0 12px;padding-left:20px">`;
+        if (nProd > 0) infoHtml += `<li>${nProd} produto(s) no estoque</li>`;
+        if (nVend > 0) infoHtml += `<li>${nVend} venda(s)</li>`;
+        if (data._exportadoEm) infoHtml += `<li>Exportado em: ${new Date(data._exportadoEm).toLocaleString('pt-BR')}</li>`;
+        infoHtml += `</ul><p style="margin:0 0 12px;color:#92400e;font-weight:600;background:#fef3c7;padding:8px 12px;border-radius:8px">⚠️ Produtos com mesmo código de barras ou nome não serão duplicados.</p>`;
+        info.innerHTML = infoHtml;
+        pvEl.appendChild(info);
+
+        const btnOk = document.createElement('button');
+        btnOk.textContent = '✔ Confirmar Importação';
+        btnOk.style.cssText = 'padding:9px 22px;background:#16a34a;color:#fff;border:none;border-radius:10px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer';
+        btnOk.addEventListener('click', confirmarImport);
+
+        const btnNo = document.createElement('button');
+        btnNo.textContent = 'Cancelar';
+        btnNo.style.cssText = 'margin-left:10px;padding:9px 18px;background:none;border:1.5px solid #cbd5e1;border-radius:10px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer';
+        btnNo.addEventListener('click', _resetImportUI);
+
+        pvEl.appendChild(btnOk);
+        pvEl.appendChild(btnNo);
         pvEl.style.display = 'block';
-        pvEl.innerHTML = '<span style="color:var(--red);font-weight:700">Arquivo inválido: nenhum dado de produtos ou vendas encontrado.</span>';
-        return;
+      } catch(err) {
+        pvEl.style.display = 'block';
+        pvEl.innerHTML = '<span style="color:var(--red);font-weight:700">Erro ao ler arquivo. Certifique-se de que é um JSON válido exportado pelo Mercadinho.</span>';
       }
-      _importDadosPendentes = data;
-
-      const nProd = (data.produtos || []).length;
-      const nVend = (data.vendas   || []).length;
-
-      let html = `<strong>Conteúdo do arquivo:</strong><ul style="margin:8px 0 12px;padding-left:20px">`;
-      if (nProd > 0) html += `<li>${nProd} produto(s) no estoque</li>`;
-      if (nVend > 0) html += `<li>${nVend} venda(s)</li>`;
-      if (data._exportadoEm) html += `<li>Exportado em: ${new Date(data._exportadoEm).toLocaleString('pt-BR')}</li>`;
-      html += `</ul>`;
-      html += `<p style="margin:0 0 12px;color:#92400e;font-weight:600;background:#fef3c7;padding:8px 12px;border-radius:8px">
-        ⚠️ Produtos com mesmo código de barras ou nome não serão duplicados.
-      </p>`;
-      html += `<button onclick="confirmarImport()" style="padding:9px 22px;background:#16a34a;color:#fff;border:none;border-radius:10px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer">
-        ✔ Confirmar Importação
-      </button>
-      <button onclick="_resetImportUI()" style="margin-left:10px;padding:9px 18px;background:none;border:1.5px solid var(--border);border-radius:10px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer">
-        Cancelar
-      </button>`;
-
-      pvEl.innerHTML = html;
-      pvEl.style.display = 'block';
-    } catch(_) {
-      pvEl.style.display = 'block';
-      pvEl.innerHTML = '<span style="color:var(--red);font-weight:700">Erro ao ler arquivo. Certifique-se de que é um JSON válido.</span>';
-    }
-  };
-  reader.readAsText(file);
+    };
+    reader.readAsText(file, 'UTF-8');
+  });
 }
 
 async function confirmarImport() {
@@ -1582,6 +1601,7 @@ _bc.onmessage = (e) => {
 _bc.postMessage('ping');
 
 boot();
+_initImportListeners();
 
 // Fechar modal clicando fora
 // Fechar modal clicando fora
