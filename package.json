@@ -12,10 +12,10 @@
     "appId": "com.mercadinho.caixa",
     "productName": "Mercadinho",
     "copyright": "Roger",
-    "icon": "resources/mercado-delao.ico",
+    "icon": "resources/icon.ico",
     "win": {
       "target": "nsis",
-      "icon": "resources/mercado-delao.ico"
+      "icon": "resources/icon.ico"
     },
     "nsis": {
       "oneClick": false,

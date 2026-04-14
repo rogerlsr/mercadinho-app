@@ -10,7 +10,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 650,
     title: 'Mercadinho - Sistema de Caixa',
-    icon: path.join(__dirname, 'resources', 'mercado-delao.ico'),
+    icon: path.join(__dirname, 'resources', 'icon.ico'),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
