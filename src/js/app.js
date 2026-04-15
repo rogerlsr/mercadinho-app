@@ -13,7 +13,7 @@ let clockTimer = null, toastTimer;
 // =====================================================
 // CONSTANTES
 // =====================================================
-const PAGAMENTOS = { dinheiro:'Dinheiro', pix:'PIX', debito:'Débito', credito:'Crédito', fiado:'Fiado' };
+const PAGAMENTOS = { dinheiro:'Dinheiro', pix:'PIX', debito:'Débito', credito:'Crédito', fiado:'Fiado', alimentacao:'Vale Alimentação', refeicao:'Vale Refeição' };
 const VENDAS_POR_PAGINA = 50;
 
 const hoje = () => new Date().toISOString().slice(0,10);
@@ -636,28 +636,91 @@ async function confirmarVenda() {
   const total = carrinho.reduce((s,i)=>s+i.preco*i.qty, 0);
   const recebido = parseFloat(document.getElementById('valor-recebido').value)||total;
   const troco = pgtoSelecionado==='dinheiro' ? Math.max(0, recebido-total) : 0;
+  const itensVenda = carrinho.map(i=>({nome:i.nome,qty:i.qty,preco:i.preco}));
   const itensStr = carrinho.map(i=>`${i.qty}x ${i.nome}`).join(', ');
   const agora = new Date();
   const hora = agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
 
-  for(const ci of carrinho){
-    const p=produtos.find(x=>x.id===ci.id);
-    if(p){p.estoque=Math.max(0,p.estoque-ci.qty);p.vendidos=(p.vendidos||0)+ci.qty;await dbPut('produtos',p);}
+  let vid;
+  try {
+    for(const ci of carrinho){
+      const p=produtos.find(x=>x.id===ci.id);
+      if(p){p.estoque=Math.max(0,p.estoque-ci.qty);p.vendidos=(p.vendidos||0)+ci.qty;await dbPut('produtos',p);}
+    }
+    const pgtoLabel = PAGAMENTOS[pgtoSelecionado];
+    const venda={data:hoje(),hora,itensStr,total,pagamento:pgtoLabel,recebido,troco,criadoEm:agora.toISOString()};
+    vid=await dbAdd('vendas',venda);
+    venda.id=vid; vendas.unshift(venda);
+
+    // Mostra cupom ANTES de limpar o carrinho
+    imprimirCupom(venda, itensVenda);
+
+    carrinho=[];
+    try{ renderCarrinho(); }catch(_){}
+    try{ renderCaixa(); }catch(_){}
+
+    await registrarAudit('VENDA', `Venda #${vid} — ${fmt(total)} (${pgtoLabel}) — ${itensStr}`);
+    let msg = `Venda #${vid} — ${fmt(total)} (${pgtoLabel})`;
+    if(pgtoSelecionado==='dinheiro' && troco>0) msg += ` · Troco: ${fmt(troco)}`;
+    showToast(msg, true);
+  } catch(e) {
+    showToast('Erro ao registrar venda: '+(e?.message||String(e)), 'red');
   }
+}
 
-  const pgtoLabel = PAGAMENTOS[pgtoSelecionado];
-  const venda={data:hoje(),hora,itensStr,total,pagamento:pgtoLabel,recebido,troco,criadoEm:agora.toISOString()};
-  const vid=await dbAdd('vendas',venda);
-  venda.id=vid; vendas.unshift(venda);
+// =====================================================
+// CUPOM DE VENDA
+// =====================================================
+function gerarHtmlCupom(venda, itens) {
+  const itensHtml = (itens && itens.length > 0)
+    ? itens.map(i=>`<tr><td>${i.nome}</td><td style="text-align:center">${i.qty}</td><td style="text-align:right">${fmt(i.preco*i.qty)}</td></tr>`).join('')
+    : `<tr><td colspan="3">${venda.itensStr||'—'}</td></tr>`;
+  const troco = venda.troco > 0 ? `<tr><td colspan="2"><strong>Troco</strong></td><td style="text-align:right"><strong>${fmt(venda.troco)}</strong></td></tr>` : '';
+  return `
+    <div style="font-family:monospace;font-size:13px">
+      <div style="text-align:center;margin-bottom:12px">
+        <div style="font-size:16px;font-weight:800">Mercadinho</div>
+        <div style="color:#64748b;font-size:11px">${venda.data||''} ${venda.hora||''}</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;margin-bottom:10px">
+        <thead><tr style="border-bottom:1px solid #e2e8f0">
+          <th style="text-align:left;padding:4px 2px">Produto</th>
+          <th style="text-align:center;padding:4px 2px">Qtd</th>
+          <th style="text-align:right;padding:4px 2px">Total</th>
+        </tr></thead>
+        <tbody>${itensHtml}</tbody>
+      </table>
+      <div style="border-top:1px solid #e2e8f0;padding-top:8px">
+        <table style="width:100%;border-collapse:collapse">
+          <tr><td colspan="2">Forma de pagamento</td><td style="text-align:right">${venda.pagamento||'—'}</td></tr>
+          <tr><td colspan="2"><strong>Total</strong></td><td style="text-align:right"><strong>${fmt(venda.total)}</strong></td></tr>
+          ${troco}
+        </table>
+      </div>
+      <div style="text-align:center;margin-top:12px;color:#94a3b8;font-size:11px">Obrigado pela preferência!</div>
+    </div>`;
+}
 
-  carrinho=[];
-  renderCarrinho();
-  renderCaixa();
+function _abrirModalCupom(html, titulo) {
+  const content = document.getElementById('cupom-modal-content');
+  if (content) content.innerHTML = html;
+  const t = document.getElementById('cupom-modal-titulo');
+  if (t) t.textContent = titulo || 'Cupom';
+  const modal = document.getElementById('cupom-modal');
+  if (modal) modal.style.display = 'flex';
+}
 
-  await registrarAudit('VENDA', `Venda #${vid} — ${fmt(total)} (${pgtoLabel}) — ${itensStr}`);
-  let msg = `Venda #${vid} — ${fmt(total)} (${pgtoLabel})`;
-  if(pgtoSelecionado==='dinheiro' && troco>0) msg += ` · Troco: ${fmt(troco)}`;
-  showToast(msg, true);
+function imprimirCupom(venda, itens) {
+  _abrirModalCupom(gerarHtmlCupom(venda, itens), 'Venda Registrada!');
+}
+
+function verCupomVenda(v) {
+  _abrirModalCupom(gerarHtmlCupom(v, null), `Cupom — Venda #${String(v.id).padStart(3,'0')}`);
+}
+
+function fecharCupom() {
+  const modal = document.getElementById('cupom-modal');
+  if (modal) modal.style.display = 'none';
 }
 
 // =====================================================
@@ -927,6 +990,13 @@ function _criarLinhaVenda(v) {
     <span class="venda-items">${v.itensStr}</span>
     ${v.pagamento?`<span style="font-size:11px;font-weight:700;background:var(--green-light);color:var(--green-dark);padding:3px 8px;border-radius:20px;white-space:nowrap">${v.pagamento}</span>`:''}
     <span class="venda-total">${fmt(v.total)}</span>`;
+  const btnCupom = document.createElement('button');
+  btnCupom.className = 'btn-del-venda';
+  btnCupom.title = 'Ver cupom';
+  btnCupom.textContent = '🧾';
+  btnCupom.style.marginRight = '4px';
+  btnCupom.addEventListener('click', () => verCupomVenda(v));
+  d.appendChild(btnCupom);
   const btnDel = document.createElement('button');
   btnDel.className = 'btn-del-venda';
   btnDel.title = 'Excluir venda';
@@ -1152,7 +1222,20 @@ function _initImportListeners() {
     };
     reader.onload = ev => {
       try {
-        const data = JSON.parse(ev.target.result);
+        let data = JSON.parse(ev.target.result);
+        // Normaliza formato externo: { total_itens, estoque: [{descricao, codigo, quantidade, unidade}] }
+        if (data.estoque && Array.isArray(data.estoque)) {
+          data.produtos = data.estoque.map(e => ({
+            nome:     (e.descricao || '').trim(),
+            barras:   (e.codigo    || '').trim(),
+            categoria:'',
+            unidade:  (e.unidade   || 'un').toLowerCase(),
+            preco:    0,
+            custo:    0,
+            estoque:  Number(e.quantidade) || 0,
+            vendidos: 0,
+          }));
+        }
         if (!data.produtos && !data.vendas) {
           pvEl.style.display = 'block';
           pvEl.innerHTML = '<span style="color:var(--red);font-weight:700">Arquivo inválido: nenhum dado de produtos ou vendas encontrado.</span>';
@@ -1269,16 +1352,26 @@ async function renderRelatorios() {
       <td>${s.duracao||'—'}</td>
       <td style="text-align:center">${s.numVendas||0}</td>
       <td style="color:var(--green);font-weight:800">${fmt(s.totalVendas||0)}</td>
-      <td>${badge}</td>`;
+      <td>${badge}</td>
+      <td><button class="btn-del" title="Excluir relatório" onclick="deletarSessao(${s.id})">🗑️</button></td>`;
     tbody.appendChild(tr);
   });
   if(lista.length===0)
-    tbody.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:28px">Nenhuma sessão encontrada.</td></tr>';
+    tbody.innerHTML='<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:28px">Nenhuma sessão encontrada.</td></tr>';
   const tot=lista.reduce((s,v)=>s+(v.totalVendas||0),0);
   document.getElementById('ar-total').textContent=fmt(tot);
   document.getElementById('ar-sessoes').textContent=lista.length;
   document.getElementById('ar-media').textContent=lista.length?fmt(tot/lista.length):'R$ 0,00';
 }
+function deletarSessao(id) {
+  mostrarConfirmar('Excluir Relatório', `Excluir o relatório de sessão #${String(id).padStart(3,'0')}? Esta ação não pode ser desfeita.`, async () => {
+    await dbDelete('sessoes', id);
+    await registrarAudit('EXCLUIR_SESSAO', `Sessão #${id} excluída pelo admin`);
+    renderRelatorios();
+    showToast('Relatório excluído.', true);
+  });
+}
+
 async function renderUsuariosAdmin() {
   const lista=await dbGetAll('usuarios');
   const tbody=document.getElementById('admin-usuarios-tbody');
@@ -1485,8 +1578,8 @@ function confirmarAcao() {
 // =====================================================
 // TIMEOUT DE SESSÃO (5.3 — 30 min de inatividade)
 // =====================================================
-const TIMEOUT_SESSAO = 30 * 60 * 1000;
-const AVISO_TIMEOUT  =  2 * 60 * 1000;
+const TIMEOUT_SESSAO = 8 * 60 * 60 * 1000;
+const AVISO_TIMEOUT  = 5 * 60 * 1000;
 let timerSessao = null, timerAviso = null;
 
 function resetarTimeoutSessao() {
