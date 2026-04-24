@@ -485,7 +485,9 @@ function addCarrinho(id){
 function changeQty(id,delta){
   const idx=carrinho.findIndex(x=>x.id===id);
   if(idx===-1) return;
-  carrinho[idx].qty+=delta;
+  const isKg = (carrinho[idx].unidade||'un').toLowerCase()==='kg';
+  const step = isKg ? 0.1 : 1;
+  carrinho[idx].qty = Math.round((carrinho[idx].qty + delta * step) * 1000) / 1000;
   if(carrinho[idx].qty<=0) carrinho.splice(idx,1);
   renderCarrinho();
 }
@@ -501,13 +503,18 @@ function renderCarrinho(){
   const frag=document.createDocumentFragment();
   carrinho.forEach(item=>{
     total+=item.preco*item.qty;
+    const isKg=(item.unidade||'un').toLowerCase()==='kg';
+    const qtyLabel=isKg
+      ? item.qty.toFixed(3).replace('.',',')+' kg'
+      : item.qty;
+    const precoUnit=isKg?`<div style="font-size:10px;color:var(--muted)">${fmt(item.preco)}/kg</div>`:'';
     const d=document.createElement('div');
     d.className='carrinho-item';
     d.innerHTML=`
-      <div class="ci-nome">${item.nome}</div>
+      <div class="ci-nome">${item.nome}${precoUnit}</div>
       <div class="ci-ctrl">
         <button class="btn-qty" onclick="changeQty(${item.id},-1)">−</button>
-        <span class="ci-qty">${item.qty}</span>
+        <span class="ci-qty">${qtyLabel}</span>
         <button class="btn-qty" onclick="changeQty(${item.id},1)">+</button>
       </div>
       <div class="ci-preco">${fmt(item.preco*item.qty)}</div>`;
@@ -520,24 +527,41 @@ function renderCarrinho(){
 function limparCarrinho(){carrinho=[];renderCarrinho();}
 
 // Tecla Enter no campo de busca (maquininha/leitor de código de barras)
+// Suporta: CODIGO*PESO (kg) ou CODIGO*QTD (un)
 function buscarPorEnter(e) {
   if (e.key !== 'Enter') return;
   e.preventDefault();
-  const q = (document.getElementById('search-input')?.value || '').trim();
-  if (!q) return;
+  const raw = (document.getElementById('search-input')?.value || '').trim();
+  if (!raw) return;
 
-  // Verifica match exato de código de barras (prioridade)
-  const exato = produtos.find(p => (p.barras || '') === q);
+  // Detecta padrão CODIGO*VALOR
+  if (raw.includes('*')) {
+    const [barcodeStr, amtStr] = raw.split('*').map(s => s.trim());
+    const multiplier = parseFloat((amtStr || '').replace(',', '.'));
+    if (!barcodeStr || isNaN(multiplier) || multiplier <= 0) {
+      showToast('Formato inválido. Use: CODIGO*PESO (ex: 7891234*2,500)', 'red');
+      return;
+    }
+    const p = produtos.find(x => (x.barras || '') === barcodeStr);
+    if (!p) { showToast('Código de barras não encontrado', 'red'); return; }
+    const isKg = (p.unidade || 'un').toLowerCase() === 'kg';
+    const qty  = isKg ? Math.round(multiplier * 1000) / 1000 : Math.max(1, Math.round(multiplier));
+    _addCarrinhoQty(p.id, qty);
+    document.getElementById('search-input').value = '';
+    renderCaixa();
+    return;
+  }
+
+  // Busca normal
+  const exato = produtos.find(p => (p.barras || '') === raw);
   if (exato) {
     addCarrinho(exato.id);
     document.getElementById('search-input').value = '';
     renderCaixa();
     return;
   }
-
-  // Se só tem um resultado, adiciona direto
-  const qLower = q.toLowerCase();
-  const lista = produtos.filter(p => p.nome.toLowerCase().includes(qLower) || (p.barras || '').includes(q));
+  const qLower = raw.toLowerCase();
+  const lista = produtos.filter(p => p.nome.toLowerCase().includes(qLower) || (p.barras || '').includes(raw));
   if (lista.length === 1) {
     addCarrinho(lista[0].id);
     document.getElementById('search-input').value = '';
@@ -545,7 +569,24 @@ function buscarPorEnter(e) {
   } else if (lista.length === 0) {
     showToast('Produto não encontrado', 'red');
   }
-  // Se múltiplos resultados: mantém a lista visível para o operador escolher
+}
+
+// Adiciona produto ao carrinho com quantidade/peso específico
+function _addCarrinhoQty(id, qty) {
+  const p = produtos.find(x => x.id === id);
+  if (!p) return;
+  const isKg = (p.unidade || 'un').toLowerCase() === 'kg';
+  const item = carrinho.find(x => x.id === id);
+  if (item) {
+    item.qty = Math.round((item.qty + qty) * 1000) / 1000;
+  } else {
+    carrinho.push({ id, nome: p.nome, preco: p.preco, unidade: p.unidade || 'un', qty });
+  }
+  renderCarrinho();
+  const qtyStr = isKg
+    ? qty.toFixed(3).replace('.', ',') + ' kg'
+    : qty + ' un';
+  showToast(`${p.nome} — ${qtyStr} adicionado`, true);
 }
 
 // =====================================================
@@ -636,8 +677,11 @@ async function confirmarVenda() {
   const total = carrinho.reduce((s,i)=>s+i.preco*i.qty, 0);
   const recebido = parseFloat(document.getElementById('valor-recebido').value)||total;
   const troco = pgtoSelecionado==='dinheiro' ? Math.max(0, recebido-total) : 0;
-  const itensVenda = carrinho.map(i=>({nome:i.nome,qty:i.qty,preco:i.preco}));
-  const itensStr = carrinho.map(i=>`${i.qty}x ${i.nome}`).join(', ');
+  const itensVenda = carrinho.map(i=>({nome:i.nome,qty:i.qty,preco:i.preco,unidade:i.unidade||'un'}));
+  const itensStr = carrinho.map(i=>{
+    const isKg=(i.unidade||'un').toLowerCase()==='kg';
+    return isKg?`${i.qty.toFixed(3).replace('.',',')}kg ${i.nome}`:`${i.qty}x ${i.nome}`;
+  }).join(', ');
   const agora = new Date();
   const hora = agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
 
@@ -673,7 +717,11 @@ async function confirmarVenda() {
 // =====================================================
 function gerarHtmlCupom(venda, itens) {
   const itensHtml = (itens && itens.length > 0)
-    ? itens.map(i=>`<tr><td>${i.nome}</td><td style="text-align:center">${i.qty}</td><td style="text-align:right">${fmt(i.preco*i.qty)}</td></tr>`).join('')
+    ? itens.map(i=>{
+        const isKg=(i.unidade||'un').toLowerCase()==='kg';
+        const qStr=isKg?i.qty.toFixed(3).replace('.',',')+' kg':i.qty;
+        return `<tr><td>${i.nome}</td><td style="text-align:center">${qStr}</td><td style="text-align:right">${fmt(i.preco*i.qty)}</td></tr>`;
+      }).join('')
     : `<tr><td colspan="3">${venda.itensStr||'—'}</td></tr>`;
   const troco = venda.troco > 0 ? `<tr><td colspan="2"><strong>Troco</strong></td><td style="text-align:right"><strong>${fmt(venda.troco)}</strong></td></tr>` : '';
   return `
