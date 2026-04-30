@@ -1396,7 +1396,7 @@ function _initImportListeners() {
 
         const btnOk = document.createElement('button');
         btnOk.textContent = '✔ Confirmar Importação';
-        btnOk.style.cssText = 'padding:9px 22px;background:#16a34a;color:#fff;border:none;border-radius:10px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer';
+        btnOk.style.cssText = 'padding:9px 22px;background:#1a1a1a;color:#fff;border:none;border-radius:10px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer';
         btnOk.addEventListener('click', confirmarImport);
 
         const btnNo = document.createElement('button');
@@ -1559,11 +1559,11 @@ async function editarUsuario(login) {
 const AUDIT_BADGES = {
   LOGIN:           ['#dbeafe','#1d4ed8','Login'],
   LOGOUT:          ['#f1f5f9','#475569','Logout'],
-  ABRIR_CAIXA:     ['#dcfce7','#15803d','Abrir Caixa'],
+  ABRIR_CAIXA:     ['#f1f5f9','#1a1a1a','Abrir Caixa'],
   FECHAR_CAIXA:    ['#fef9c3','#92400e','Fechar Caixa'],
-  VENDA:           ['#dcfce7','#15803d','Venda'],
+  VENDA:           ['#f1f5f9','#1a1a1a','Venda'],
   EXCLUIR_VENDA:   ['#fee2e2','#b91c1c','Excluir Venda'],
-  CRIAR_PRODUTO:   ['#dcfce7','#15803d','Novo Produto'],
+  CRIAR_PRODUTO:   ['#f1f5f9','#1a1a1a','Novo Produto'],
   EDITAR_PRODUTO:  ['#fef9c3','#92400e','Editar Produto'],
   EXCLUIR_PRODUTO: ['#fee2e2','#b91c1c','Excluir Produto'],
   CRIAR_USUARIO:   ['#ede9fe','#6d28d9','Novo Usuário'],
