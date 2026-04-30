@@ -42,6 +42,19 @@ function createWindow() {
   });
 
   mainWindow.on('closed', () => { mainWindow = null; });
+
+  // Permite popup de impressão do cupom
+  mainWindow.webContents.setWindowOpenHandler(({ features }) => {
+    return {
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        width: 420,
+        height: 650,
+        autoHideMenuBar: true,
+        webPreferences: { nodeIntegration: false, contextIsolation: true },
+      },
+    };
+  });
 }
 
 app.whenReady().then(createWindow);

@@ -840,6 +840,25 @@ function fecharCupom() {
   if (modal) modal.style.display = 'none';
 }
 
+function imprimirJanela() {
+  const content = document.getElementById('cupom-modal-content')?.innerHTML || '';
+  const w = window.open('', '_blank', 'width=420,height=650,menubar=no,toolbar=no,location=no,status=no,scrollbars=yes');
+  if (!w) { showToast('Popup bloqueado — permita popups para imprimir.', 'red'); return; }
+  w.document.write(`<!DOCTYPE html><html><head>
+<meta charset="UTF-8"><title>Cupom — Mercadinho</title>
+<style>
+  body{font-family:monospace;font-size:13px;margin:20px;background:#fff;color:#000}
+  table{width:100%;border-collapse:collapse}
+  td,th{padding:3px 2px;vertical-align:top}
+  strong{font-weight:800}
+  @media print{body{margin:5px}}
+</style>
+</head><body>${content}
+<script>window.onload=function(){window.print();};<\/script>
+</body></html>`);
+  w.document.close();
+}
+
 // =====================================================
 // ESTOQUE
 // =====================================================
