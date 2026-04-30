@@ -621,58 +621,70 @@
 
 
 <div class="modal-overlay" id="modal-venda">
-  <div class="modal" style="width:460px">
+  <div class="modal" style="width:480px">
     <button class="modal-close" onclick="document.getElementById('modal-venda').classList.remove('open')">✕</button>
     <h3>Finalizar Venda</h3>
 
-    <div id="venda-total-box" style="background:var(--green-bg);border:1.5px solid #bbf7d0;border-radius:14px;padding:16px 20px;text-align:center;margin-bottom:22px">
-      <div style="font-size:12px;font-weight:700;color:var(--green-dark);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Total a pagar</div>
-      <div id="venda-total-display" style="font-size:32px;font-weight:800;color:var(--green)">R$ 0,00</div>
+    <!-- Total + Restante -->
+    <div style="background:var(--green-bg);border:1.5px solid #bbf7d0;border-radius:14px;padding:14px 20px;text-align:center;margin-bottom:16px">
+      <div style="font-size:12px;font-weight:700;color:var(--green-dark);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Total a pagar</div>
+      <div id="venda-total-display" style="font-size:30px;font-weight:800;color:var(--green)">R$ 0,00</div>
+      <div id="venda-restante-box" style="margin-top:4px;font-size:13px;font-weight:700;color:#dc2626;display:none">
+        Restante: <span id="venda-restante">R$ 0,00</span>
+      </div>
+      <div id="venda-troco-box" style="margin-top:4px;font-size:13px;font-weight:700;color:var(--green-dark);display:none">
+        Troco: <span id="venda-troco">R$ 0,00</span>
+      </div>
     </div>
 
-    <div style="margin-bottom:18px">
-      <div style="font-size:13px;font-weight:700;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:.4px">Forma de pagamento</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+    <!-- Forma de pagamento -->
+    <div style="margin-bottom:10px">
+      <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.4px">Forma de pagamento</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px">
         <button class="pgto-btn active" id="pgto-dinheiro" onclick="selecionarPgto('dinheiro')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 12h.01M18 12h.01"/></svg>
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg>
           Dinheiro
         </button>
         <button class="pgto-btn" id="pgto-pix" onclick="selecionarPgto('pix')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m8 12 2.5 2.5L16 9"/><rect x="3" y="3" width="18" height="18" rx="3"/></svg>
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="m8 12 2.5 2.5L16 9"/><rect x="3" y="3" width="18" height="18" rx="3"/></svg>
           PIX
         </button>
         <button class="pgto-btn" id="pgto-debito" onclick="selecionarPgto('debito')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
           Débito
         </button>
         <button class="pgto-btn" id="pgto-credito" onclick="selecionarPgto('credito')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/></svg>
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/></svg>
           Crédito
         </button>
-        <button class="pgto-btn" id="pgto-fiado" onclick="selecionarPgto('fiado')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-          Fiado
-        </button>
         <button class="pgto-btn" id="pgto-alimentacao" onclick="selecionarPgto('alimentacao')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>
-          Vale Alimentação
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>
+          Vale Alim.
         </button>
         <button class="pgto-btn" id="pgto-refeicao" onclick="selecionarPgto('refeicao')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
-          Vale Refeição
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/></svg>
+          Vale Ref.
         </button>
       </div>
     </div>
 
-    <div id="valor-recebido-box" class="fg">
-      <label>Valor recebido</label>
-      <input type="number" id="valor-recebido" step="0.01" min="0" placeholder="0,00" oninput="calcularTroco()">
-      <div id="troco-display" style="margin-top:8px;font-size:14px;font-weight:700;color:var(--green-dark);display:none">
-        Troco: <span id="troco-valor">R$ 0,00</span>
+    <!-- Valor + Adicionar -->
+    <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:12px">
+      <div class="fg" style="flex:1;margin:0">
+        <label>Valor</label>
+        <input type="number" id="valor-pgto" step="0.01" min="0" placeholder="0,00" onkeydown="if(event.key==='Enter')adicionarPagamento()">
       </div>
+      <button onclick="preencherRestante()" style="padding:10px 12px;background:var(--bg);border:1.5px solid var(--border);border-radius:10px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;margin-bottom:1px">↙ Restante</button>
+      <button onclick="adicionarPagamento()" style="padding:10px 16px;background:#1e293b;color:#fff;border:none;border-radius:10px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:1px">Adicionar</button>
     </div>
 
-    <button class="btn-save" style="width:100%;padding:14px;font-size:15px;border-radius:14px;margin-top:8px;opacity:.5;cursor:not-allowed" id="btn-confirmar-venda" onclick="confirmarVenda()" disabled>
+    <!-- Lista de pagamentos adicionados -->
+    <div id="pgto-lista" style="display:none;margin-bottom:12px;background:var(--bg);border-radius:12px;padding:10px 14px">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:8px">Pagamentos</div>
+      <div id="pgto-lista-items"></div>
+    </div>
+
+    <button class="btn-save" style="width:100%;padding:14px;font-size:15px;border-radius:14px;opacity:.5;cursor:not-allowed" id="btn-confirmar-venda" onclick="confirmarVenda()" disabled>
       Confirmar Venda
     </button>
   </div>

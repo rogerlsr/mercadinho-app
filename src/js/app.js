@@ -13,7 +13,7 @@ let clockTimer = null, toastTimer;
 // =====================================================
 // CONSTANTES
 // =====================================================
-const PAGAMENTOS = { dinheiro:'Dinheiro', pix:'PIX', debito:'Débito', credito:'Crédito', fiado:'Fiado', alimentacao:'Vale Alimentação', refeicao:'Vale Refeição' };
+const PAGAMENTOS = { dinheiro:'Dinheiro', pix:'PIX', debito:'Débito', credito:'Crédito', alimentacao:'Vale Alimentação', refeicao:'Vale Refeição' };
 const VENDAS_POR_PAGINA = 50;
 
 const hoje = () => new Date().toISOString().slice(0,10);
@@ -626,64 +626,131 @@ function confirmarAvulso() {
 }
 
 // =====================================================
-// MODAL PAGAMENTO
+// MODAL PAGAMENTO — múltiplas formas
 // =====================================================
+let _pagamentosLista = []; // [{metodo, label, valor}]
 
 function finalizarVenda() {
   if(carrinho.length===0) return;
   const total = carrinho.reduce((s,i)=>s+i.preco*i.qty, 0);
+  _pagamentosLista = [];
   document.getElementById('venda-total-display').textContent = fmt(total);
-  document.getElementById('valor-recebido').value = '';
-  document.getElementById('troco-display').style.display = 'none';
+  document.getElementById('valor-pgto').value = '';
+  document.getElementById('venda-restante-box').style.display = 'none';
+  document.getElementById('venda-troco-box').style.display = 'none';
+  document.getElementById('pgto-lista').style.display = 'none';
+  document.getElementById('pgto-lista-items').innerHTML = '';
+  const btn = document.getElementById('btn-confirmar-venda');
+  btn.disabled = true; btn.style.opacity = '.5'; btn.style.cursor = 'not-allowed';
   selecionarPgto('dinheiro');
   document.getElementById('modal-venda').classList.add('open');
+  setTimeout(() => document.getElementById('valor-pgto').focus(), 80);
 }
 
 function selecionarPgto(tipo) {
   pgtoSelecionado = tipo;
   document.querySelectorAll('.pgto-btn').forEach(b=>b.classList.remove('active'));
-  document.getElementById('pgto-'+tipo).classList.add('active');
-  const vrBox = document.getElementById('valor-recebido-box');
-  // Só mostra "valor recebido" para dinheiro
-  vrBox.style.display = tipo==='dinheiro' ? 'block' : 'none';
-  const btn = document.getElementById('btn-confirmar-venda');
-  if(tipo!=='dinheiro'){
-    btn.style.opacity='1'; btn.style.cursor='pointer'; btn.disabled=false;
-    document.getElementById('troco-display').style.display='none';
+  const el = document.getElementById('pgto-'+tipo);
+  if (el) el.classList.add('active');
+}
+
+function preencherRestante() {
+  const total = carrinho.reduce((s,i)=>s+i.preco*i.qty, 0);
+  const pago  = _pagamentosLista.reduce((s,p)=>s+p.valor, 0);
+  const rest  = Math.max(0, Math.round((total - pago) * 100) / 100);
+  document.getElementById('valor-pgto').value = rest.toFixed(2);
+}
+
+function adicionarPagamento() {
+  const total   = carrinho.reduce((s,i)=>s+i.preco*i.qty, 0);
+  const pago    = _pagamentosLista.reduce((s,p)=>s+p.valor, 0);
+  const restante = Math.round((total - pago) * 100) / 100;
+
+  let valor = parseFloat((document.getElementById('valor-pgto').value||'').replace(',','.'));
+  if (isNaN(valor) || valor <= 0) {
+    // Auto-preenche com o restante
+    valor = restante;
+  }
+  valor = Math.round(valor * 100) / 100;
+  if (valor <= 0) { showToast('Informe um valor maior que zero.','red'); return; }
+
+  _pagamentosLista.push({ metodo: pgtoSelecionado, label: PAGAMENTOS[pgtoSelecionado], valor });
+  document.getElementById('valor-pgto').value = '';
+  _atualizarPagamentosUI();
+}
+
+function _removerPagamento(idx) {
+  _pagamentosLista.splice(idx, 1);
+  _atualizarPagamentosUI();
+}
+
+function _atualizarPagamentosUI() {
+  const total = carrinho.reduce((s,i)=>s+i.preco*i.qty, 0);
+  const pago  = _pagamentosLista.reduce((s,p)=>s+p.valor, 0);
+  const restante = Math.round((total - pago) * 100) / 100;
+  const temDinheiro = _pagamentosLista.some(p=>p.metodo==='dinheiro');
+  const troco = temDinheiro ? Math.max(0, Math.round((pago - total) * 100) / 100) : 0;
+
+  // Restante / Troco
+  const restBox  = document.getElementById('venda-restante-box');
+  const trocoBox = document.getElementById('venda-troco-box');
+  if (restante > 0.005) {
+    restBox.style.display = 'block';
+    document.getElementById('venda-restante').textContent = fmt(restante);
+    trocoBox.style.display = 'none';
   } else {
-    btn.style.opacity='.5'; btn.style.cursor='not-allowed'; btn.disabled=true;
+    restBox.style.display = 'none';
+    trocoBox.style.display = troco > 0 ? 'block' : 'none';
+    if (troco > 0) document.getElementById('venda-troco').textContent = fmt(troco);
+  }
+
+  // Lista de pagamentos
+  const listaEl = document.getElementById('pgto-lista');
+  const itemsEl = document.getElementById('pgto-lista-items');
+  if (_pagamentosLista.length > 0) {
+    listaEl.style.display = 'block';
+    itemsEl.innerHTML = '';
+    _pagamentosLista.forEach((p, i) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border)';
+      row.innerHTML = `
+        <span style="font-size:13px;font-weight:700">${p.label}</span>
+        <span style="font-size:14px;font-weight:800;color:var(--green)">${fmt(p.valor)}</span>
+        <button onclick="_removerPagamento(${i})" style="background:none;border:none;cursor:pointer;color:#ef4444;font-size:16px;padding:0 4px">✕</button>`;
+      itemsEl.appendChild(row);
+    });
+  } else {
+    listaEl.style.display = 'none';
+  }
+
+  // Botão confirmar
+  const btn = document.getElementById('btn-confirmar-venda');
+  if (restante <= 0.005 && _pagamentosLista.length > 0) {
+    btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer';
+  } else {
+    btn.disabled = true; btn.style.opacity = '.5'; btn.style.cursor = 'not-allowed';
   }
 }
 
-function calcularTroco() {
-  const total = carrinho.reduce((s,i)=>s+i.preco*i.qty, 0);
-  const recebido = parseFloat(document.getElementById('valor-recebido').value)||0;
-  const btn = document.getElementById('btn-confirmar-venda');
-  const trocoBox = document.getElementById('troco-display');
-  if(recebido >= total) {
-    const troco = recebido - total;
-    document.getElementById('troco-valor').textContent = fmt(troco);
-    trocoBox.style.display = 'block';
-    btn.style.opacity='1'; btn.style.cursor='pointer'; btn.disabled=false;
-  } else {
-    trocoBox.style.display = 'none';
-    btn.style.opacity='.5'; btn.style.cursor='not-allowed'; btn.disabled=true;
-  }
-}
+function calcularTroco() { /* substituído por _atualizarPagamentosUI */ }
 
 async function confirmarVenda() {
-  if(carrinho.length===0) return;
+  if(carrinho.length===0 || _pagamentosLista.length===0) return;
   document.getElementById('modal-venda').classList.remove('open');
-  const total = carrinho.reduce((s,i)=>s+i.preco*i.qty, 0);
-  const recebido = parseFloat(document.getElementById('valor-recebido').value)||total;
-  const troco = pgtoSelecionado==='dinheiro' ? Math.max(0, recebido-total) : 0;
+  const total   = carrinho.reduce((s,i)=>s+i.preco*i.qty, 0);
+  const recebido = Math.round(_pagamentosLista.reduce((s,p)=>s+p.valor, 0) * 100) / 100;
+  const temDinheiro = _pagamentosLista.some(p=>p.metodo==='dinheiro');
+  const troco   = temDinheiro ? Math.max(0, Math.round((recebido - total) * 100) / 100) : 0;
+  const pgtoLabel = _pagamentosLista.length === 1
+    ? _pagamentosLista[0].label
+    : _pagamentosLista.map(p=>`${p.label} ${fmt(p.valor)}`).join(' + ');
   const itensVenda = carrinho.map(i=>({nome:i.nome,qty:i.qty,preco:i.preco,unidade:i.unidade||'un'}));
-  const itensStr = carrinho.map(i=>{
+  const itensStr   = carrinho.map(i=>{
     const isKg=(i.unidade||'un').toLowerCase()==='kg';
     return isKg?`${i.qty.toFixed(3).replace('.',',')}kg ${i.nome}`:`${i.qty}x ${i.nome}`;
   }).join(', ');
   const agora = new Date();
-  const hora = agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  const hora  = agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
 
   let vid;
   try {
@@ -691,21 +758,21 @@ async function confirmarVenda() {
       const p=produtos.find(x=>x.id===ci.id);
       if(p){p.estoque=Math.max(0,p.estoque-ci.qty);p.vendidos=(p.vendidos||0)+ci.qty;await dbPut('produtos',p);}
     }
-    const pgtoLabel = PAGAMENTOS[pgtoSelecionado];
-    const venda={data:hoje(),hora,itensStr,total,pagamento:pgtoLabel,recebido,troco,criadoEm:agora.toISOString()};
+    const venda={data:hoje(),hora,itensStr,total,pagamento:pgtoLabel,
+      pagamentos:_pagamentosLista.map(p=>({metodo:p.metodo,label:p.label,valor:p.valor})),
+      recebido,troco,criadoEm:agora.toISOString()};
     vid=await dbAdd('vendas',venda);
     venda.id=vid; vendas.unshift(venda);
 
-    // Mostra cupom ANTES de limpar o carrinho
     imprimirCupom(venda, itensVenda);
 
-    carrinho=[];
+    carrinho=[]; _pagamentosLista=[];
     try{ renderCarrinho(); }catch(_){}
     try{ renderCaixa(); }catch(_){}
 
     await registrarAudit('VENDA', `Venda #${vid} — ${fmt(total)} (${pgtoLabel}) — ${itensStr}`);
-    let msg = `Venda #${vid} — ${fmt(total)} (${pgtoLabel})`;
-    if(pgtoSelecionado==='dinheiro' && troco>0) msg += ` · Troco: ${fmt(troco)}`;
+    let msg = `Venda #${vid} — ${fmt(total)}`;
+    if(troco>0) msg += ` · Troco: ${fmt(troco)}`;
     showToast(msg, true);
   } catch(e) {
     showToast('Erro ao registrar venda: '+(e?.message||String(e)), 'red');
@@ -740,8 +807,10 @@ function gerarHtmlCupom(venda, itens) {
       </table>
       <div style="border-top:1px solid #e2e8f0;padding-top:8px">
         <table style="width:100%;border-collapse:collapse">
-          <tr><td colspan="2">Forma de pagamento</td><td style="text-align:right">${venda.pagamento||'—'}</td></tr>
           <tr><td colspan="2"><strong>Total</strong></td><td style="text-align:right"><strong>${fmt(venda.total)}</strong></td></tr>
+          ${(venda.pagamentos && venda.pagamentos.length > 1)
+            ? venda.pagamentos.map(p=>`<tr><td colspan="2" style="color:#64748b">${p.label}</td><td style="text-align:right;color:#64748b">${fmt(p.valor)}</td></tr>`).join('')
+            : `<tr><td colspan="2">Pagamento</td><td style="text-align:right">${venda.pagamento||'—'}</td></tr>`}
           ${troco}
         </table>
       </div>
